@@ -1,58 +1,101 @@
 import speech_recognition as sr
-import whisper
-import os
-import torch
+import numpy as np
+import soundfile as sf
+import io
+import threading
+import config
+
+try:
+    from faster_whisper import WhisperModel
+    HAS_FASTER_WHISPER = True
+except ImportError:
+    HAS_FASTER_WHISPER = False
 
 class AudioEngine:
-    def __init__(self, wake_word="manu", model="base"):
-        self.wake_word = wake_word.lower()
+    def __init__(self, model="base"):
         self.recognizer = sr.Recognizer()
-        self.microphone = sr.Microphone()
+        self.recognizer.energy_threshold = config.ENERGY_THRESHOLD
+        self.recognizer.dynamic_energy_threshold = False
+        self.model_name = model
+        self.whisper_model = None
         
-        # Load local Whisper model
-        # Models: 'tiny', 'base', 'small', 'medium', 'turbo'
-        print(f"Loading Whisper model: {model}...")
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.whisper_model = whisper.load_model(model, device=self.device)
-        print(f"Model loaded on {self.device}.")
+        if HAS_FASTER_WHISPER and config.STT_ENGINE == "whisper":
+            try:
+                # Use CPU for local compliance, can be changed to "cuda" if available
+                self.whisper_model = WhisperModel(model, device="cpu", compute_type="int8")
+            except Exception as e:
+                print(f"Error loading FasterWhisper: {e}")
 
-    def listen_and_recognize(self):
-        """
-        Listens to the microphone and uses Whisper to convert audio to text.
-        """
-        with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source, duration=1)
-            print("Listening...")
-            audio_data = self.recognizer.listen(source)
-            
-            # Save audio to a temp file for Whisper to process
-            with open("temp_audio.wav", "wb") as f:
-                f.write(audio_data.get_wav_data())
+    def listen_and_recognize(self, timeout=None, phrase_limit=None):
+        """Open mic, capture audio, and transcribe."""
+        try:
+            with sr.Microphone() as source:
+                print("🎤 Listening...")
+                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
                 
-            # Perform Whisper recognition
-            result = self.whisper_model.transcribe("temp_audio.wav")
-            text = result['text'].strip().lower()
-            
-            # Cleanup temp file
-            if os.path.exists("temp_audio.wav"):
-                os.remove("temp_audio.wav")
-                
-            print(f"Recognized: {text}")
-            return text
+                if config.STT_ENGINE == "whisper":
+                    return self._transcribe_whisper(audio)
+                else:
+                    return self._transcribe_google(audio)
+        except Exception as e:
+            print(f"Audio capture error: {e}")
+            return ""
 
-    def wait_for_wake_word(self):
-        """
-        Actively listens for the wake word in the background (simplified version).
-        """
-        while True:
-            text = self.listen_and_recognize()
-            if self.wake_word in text:
-                print("Wake word detected!")
-                return True
+    def _transcribe_whisper(self, audio):
+        """Transcribe using Faster-Whisper or fallback."""
+        try:
+            # Convert sr.AudioData to float32 numpy array
+            wav_data = io.BytesIO(audio.get_wav_data())
+            audio_array, sample_rate = sf.read(wav_data)
+            audio_array = audio_array.astype(np.float32)
+
+            if self.whisper_model:
+                segments, info = self.whisper_model.transcribe(audio_array, beam_size=5)
+                text = " ".join([segment.text for segment in segments]).strip()
+                return text
             else:
-                print("Checking...")
+                # Fallback to Google if whisper fails to load
+                return self._transcribe_google(audio)
+        except Exception as e:
+            print(f"Whisper transcription error: {e}")
+            return self._transcribe_google(audio)
 
-if __name__ == "__main__":
-    audio = AudioEngine()
-    if audio.wait_for_wake_word():
-        print("Success!")
+    def _transcribe_google(self, audio):
+        """Standard Google Web Speech API fallback."""
+        try:
+            return self.recognizer.recognize_google(audio).strip()
+        except sr.UnknownValueError:
+            return ""
+        except sr.RequestError as e:
+            print(f"Google STT Request Error: {e}")
+            return ""
+
+    def listen_for_command(self):
+        """Short listener after wake word."""
+        return self.listen_and_recognize(
+            timeout=config.STT_LISTEN_TIMEOUT,
+            phrase_limit=config.STT_PHRASE_LIMIT
+        )
+
+    def calibrate(self):
+        """Adjust for ambient noise."""
+        try:
+            with sr.Microphone() as source:
+                print("🤫 Calibrating for ambient noise...")
+                self.recognizer.adjust_for_ambient_noise(source, duration=1.5)
+        except Exception as e:
+            print(f"Calibration error: {e}")
+
+    def detect_wake_word(self):
+        """Listen in short bursts for wake words."""
+        try:
+            with sr.Microphone() as source:
+                audio = self.recognizer.listen(source, timeout=4, phrase_time_limit=4)
+                text = self._transcribe_whisper(audio).lower()
+                
+                for word in config.WAKE_WORDS:
+                    if word in text:
+                        return True
+                return False
+        except Exception:
+            return False
