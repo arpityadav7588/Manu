@@ -1,0 +1,18 @@
+# Core Dependencies
+ollama
+SpeechRecognition
+openai-whisper
+piper-tts
+torch
+torchaudio
+sounddevice
+numpy
+
+# GUI & Desktop
+customtkinter
+pillow
+psutil
+screen-brightness-control
+pycaw
+opencv-python
+requests
