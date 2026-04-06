@@ -4,6 +4,8 @@ import queue
 from typing import Callable, Optional
 import numpy as np
 import pyaudio
+import pygame
+pygame.mixer.init()
 
 try:
     import openwakeword
@@ -21,10 +23,11 @@ class WakeWordDetector:
         self.callback = None
         self.model = None
         self.audio_queue = queue.Queue()
-        self.chunk_size = 1280 # 80ms at 16kHz
-        self.format = pyaudio.paInt16
-        self.channels = 1
+        self.chunk_size = 1280
         self.rate = 16000
+        self.last_detection = 0
+        self.cooldown = 1.5 # Task 12: 1.5s cooldown
+        self.confidence_threshold = 0.6 # Task 12: Confidence gating
         
         if HAS_OWW:
             try:
@@ -54,10 +57,15 @@ class WakeWordDetector:
                     prediction = self.model.predict(audio_np)
                     
                     for mdl in prediction:
-                        if prediction[mdl] > 0.5:
-                            print(f"[*] Wake word detected: {mdl} ({prediction[mdl]:.2f})")
-                            if self.callback:
-                                self.callback()
+                        score = prediction[mdl]
+                        if score > self.confidence_threshold:
+                            now = time.time()
+                            if (now - self.last_detection) > self.cooldown:
+                                self.last_detection = now
+                                self._play_beep()
+                                print(f"[*] Wake word detected: {mdl} ({score:.2f})")
+                                if self.callback:
+                                    self.callback()
                 else:
                     time.sleep(0.1)
                 
@@ -67,6 +75,15 @@ class WakeWordDetector:
             print(f"[X] WakeWord: Mic error: {e}")
         finally:
             p.terminate()
+
+    def _play_beep(self):
+        """Play a short detection beep using pygame or winsound."""
+        try:
+            # Try Windows beep as a robust fallback
+            import winsound
+            winsound.Beep(1000, 150)
+        except:
+            pass
 
     def start(self, callback: Callable):
         self.callback = callback

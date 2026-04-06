@@ -13,6 +13,7 @@ from engines.command_engine import CommandEngine
 from modules.memory_manager import MemoryManager
 from modules.security_manager import SecurityManager
 from modules.emotion_manager import EmotionManager
+from modules.face_emotion import FaceEmotionDetector
 from modules.wake_word import WakeWordDetector
 from ui.app_gui import ManuGUI
 from ui.hologram import HologramWindow
@@ -21,6 +22,9 @@ class ManuAssistant:
     def __init__(self):
         print(f"[*] Initializing {config.MANU_NAME} Assistant...")
         
+        # Phase 1: Bootstrapping (Task 11)
+        self._bootstrap_folders()
+        
         self.memory = MemoryManager()
         self.speech = SpeechEngine()
         self.emotions = EmotionManager()
@@ -28,6 +32,7 @@ class ManuAssistant:
         self.brain = BrainEngine(self.memory)
         self.security = SecurityManager(self.speech, self.memory)
         self.commands = CommandEngine(self.speech, self.memory, self.brain)
+        self.face_emotion = FaceEmotionDetector(self.speech, self.emotions)
         
         self.hologram = HologramWindow()
         self.gui = ManuGUI(
@@ -40,6 +45,24 @@ class ManuAssistant:
         
         self.running = True
         self.is_listening = False
+        
+        # Display session summary (Task 3)
+        self._show_startup_summary()
+
+    def _bootstrap_folders(self):
+        """Ensure all required data directories exist."""
+        folders = [
+            "logs", "voice_notes", "screenshots", "captures", "security", "skills", "notes"
+        ]
+        for f in folders:
+            path = config.DATA_DIR / f
+            path.mkdir(parents=True, exist_ok=True)
+            print(f"[*] Directory verified: {f}")
+
+    def _show_startup_summary(self):
+        """Show summary of last session on startup."""
+        summary = self.memory.summarize_last_session()
+        print(f"[*] Last Session Summary: {summary}")
 
     def handle_login(self, password):
         if self.security.verify_password(password):
@@ -58,7 +81,8 @@ class ManuAssistant:
         self.gui.update_chat("Manu", msg)
         self.speech.speak(msg)
         
-        # Start background loops
+        # Start background loops (Task 9)
+        self.face_emotion.start()
         self.wake_detector.start(callback=self.on_wake_word)
         threading.Thread(target=self._battery_monitor_loop, daemon=True).start()
 
@@ -91,20 +115,23 @@ class ManuAssistant:
 
         # 2. Brain Engine (LLM)
         if not response:
-            response = self.brain.chat(text)
+            response = self.brain.chat(text, emotional_context=self.emotions.current_mood)
         
         if response:
-            # Apply voice modulation based on emotion
-            self.emotions.apply_voice_modulation(self.speech.engine)
+            # Phase 1: Habits (Task 3)
+            self.memory.log_habit(text[:50])
             
-            self.memory.log_interaction(text, response)
-            self.gui.update_chat("Manu", response)
+            # Phase 1: Emotion Dynamics (Task 4)
+            prefix = self.emotions.get_prefix()
+            rate, vol = self.emotions.get_tts_params()
+            full_response = f"{prefix} {response}" if prefix else response
             
-            self.hologram.set_speaking(True)
-            self.speech.speak(response)
-            self.hologram.set_speaking(False)
+            self.gui.update_chat("Manu", full_response)
+            self.speech.speak(full_response, rate=rate, volume=vol)
+            self.memory.log_interaction(text, full_response)
             
-        self.hologram.set_emotion("neutral")
+        self.hologram.set_emotion(self.emotions.current_mood)
+        self.hologram.set_speaking(False)
 
     def lock_system(self):
         self.security.lock_session()

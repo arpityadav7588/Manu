@@ -1,54 +1,55 @@
-# Manu
+# Manu AI: Hyper-Modular Desktop Assistant
 
-A pragmatic software project workspace.
+Manu is a premium, locally-running AI assistant with 3D visualization, emotional intelligence, and advanced productivity skills.
 
-## Description
+## 🌟 Key Features
 
-A concise description of the project goes here. Explain the purpose, goals, and what problem it solves.
+- **3D Hologram Avatar**: PyOpenGL-based wireframe torus that reacts to your voice and emotions.
+- **Biometric Security**: Face ID enrollment and verification via `face_recognition`.
+- **Emotional Intelligence**: Real-time mood analysis using `DeepFace` with modulated TTS responses.
+- **Advanced Memory**: Persistence via SQLite with habit tracking and contextual recall.
+- **Skill Plugin System**: Easy-to-expand architecture for custom skills (Motivation, Dice, Word of Day).
+- **Productivity Suite**: Clipboard AI, screen reading, voice notes, and morning briefings.
+- **Offline First**: Optimized for local LLMs via Ollama (`llama3:8b`).
 
-## Quick Start
+## 🚀 Quick Start
 
-This repository may contain different language ecosystems. Follow the steps that apply to your setup. Look for language-specific configuration files (for example, package.json for Node, requirements.txt for Python) and use the corresponding commands.
+### 1. Requirements
+- Python 3.10+
+- [Ollama](https://ollama.com/) (running `llama3:8b`)
+- Webcam & Microphone
 
-- If a Node.js setup is present (package.json):
-  - Install: npm install
-  - Run: npm run dev (or npm start)
-- If a Python setup is present (requirements.txt):
-  - Create a virtual environment and install: 
-    - Windows: python -m venv venv && venv\Scripts\activate && pip install -r requirements.txt
-    - macOS/Linux: python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
-- If none of the above exist, refer to the Development section for setup steps.
+### 2. Installation
+```powershell
+# Clone the repository
+git clone https://github.com/arpityadav7588/Manu
+cd Manu
 
-## Project Structure
+# Create virtual environment
+python -m venv venv
+.\venv\Scripts\activate
 
-- src/        – Source code (where applicable)
-- tests/      – Test suite
-- docs/       – Documentation
-- README.md   – This file (you are here)
+# Install dependencies
+pip install -r requirements.txt
+```
 
-Note: Update this section to reflect the actual project layout.
+### 3. Verification
+Run the system health check to ensure everything is configured correctly:
+```powershell
+python health_check.py
+```
 
-## Development
+### 4. Launch
+```powershell
+python main.py
+```
 
-1. Install dependencies (see Quick Start).
-2. Run tests: appropriate test command for the project (e.g., npm test, pytest).
-3. Build or run the project locally as per the language/framework conventions.
+## 🛠️ Project Structure
+- `engines/`: Core logic (Brain, Speech, Audio, Command).
+- `modules/`: Feature extensions (Face ID, Emotion, Memory, Security).
+- `skills/`: Plugin directory for custom skills.
+- `ui/`: GUI components and 3D Hologram logic.
+- `data/`: Persistent storage (SQLite DB, captures, notes).
 
-## Testing
-
-Describe how to run tests, including any setup steps, test commands, and how to interpret results.
-
-## Contributing
-
-Guidelines for contributing to the project:
-- Follow the existing coding style and project conventions.
-- Run the test suite before submitting changes.
-- Open an issue or submit a PR for review.
-
-## License
-
-Specify the license for the project here (e.g., MIT, Apache-2.0).
-
-## Contact
-
-Project maintainers or authors: provide contact information or links as needed.
+## 📄 License
+MIT License. Created by Arpit Yadav.

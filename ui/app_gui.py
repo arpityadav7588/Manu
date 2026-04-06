@@ -4,6 +4,13 @@ import threading
 import datetime
 import psutil
 import config
+from ui.hologram import HologramCanvas
+try:
+    import pystray
+    from PIL import Image
+    HAS_TRAY = True
+except ImportError:
+    HAS_TRAY = False
 
 # Dark theme constants
 BG = "#0f1117"
@@ -21,46 +28,64 @@ class ManuGUI:
         self.on_login_submit = on_login_submit
         self.hologram = hologram
         self._is_locked = True
+        self.tray = None
         
         self.root = tk.Tk()
         self.root.title(f"{config.MANU_NAME} Assistant")
-        self.root.geometry(f"{config.GUI_WIDTH}x{config.GUI_HEIGHT}")
+        self.root.geometry(f"{config.GUI_WIDTH + 300}x{config.GUI_HEIGHT}") # Widened for Hologram
         self.root.configure(bg=BG)
         
         # Frames
-        self.main_frame = tk.Frame(self.root, bg=BG)
+        self.main_container = tk.Frame(self.root, bg=BG)
+        self.main_container.pack(fill="both", expand=True)
+        
+        self.left_panel = tk.Frame(self.main_container, bg=BG)
+        self.left_panel.pack(side="left", fill="both", expand=True)
+        
+        self.right_panel = tk.Frame(self.main_container, bg=SURFACE, width=300)
+        self.right_panel.pack(side="right", fill="both")
+        
         self.lock_frame = tk.Frame(self.root, bg=BG)
         
         self._build_main_ui()
+        self._build_hologram_panel()
         self._build_lock_screen()
+        self._setup_tray()
         
     @property
     def is_locked(self):
         return self._is_locked
 
     def _build_main_ui(self):
-        # 1. HEADER
-        header = tk.Frame(self.main_frame, bg=BG, pady=15)
-        header.pack(fill="x", padx=20)
+        # 1. HEADER / STATUS BAR (Task 6)
+        self.status_bar = tk.Frame(self.left_panel, bg=SURFACE, height=30)
+        self.status_bar.pack(fill="x", side="top")
         
-        self.holo_icon = tk.Label(header, text="🔮", font=("Inter", 24), bg=BG, fg=ACCENT)
-        self.holo_icon.pack(side="left")
+        self.st_online = tk.Label(self.status_bar, text="● Online", fg=SUCCESS, bg=SURFACE, font=("Inter", 8))
+        self.st_online.pack(side="left", padx=10)
         
-        title_lbl = tk.Label(header, text="MANU", font=("Inter", 18, "bold"), bg=BG, fg=ACCENT)
-        title_lbl.pack(side="left", padx=15)
+        self.st_mic = tk.Label(self.status_bar, text="🎤 Idle", fg=MUTED, bg=SURFACE, font=("Inter", 8))
+        self.st_mic.pack(side="left", padx=10)
         
-        self.battery_lbl = tk.Label(header, text="--%", font=("Inter", 10), bg=BG, fg=MUTED)
-        self.battery_lbl.pack(side="right")
+        self.st_time = tk.Label(self.status_bar, text="--:--", fg=TEXT, bg=SURFACE, font=("Inter", 8))
+        self.st_time.pack(side="right", padx=10)
+        
+        self.st_batt = tk.Label(self.status_bar, text="100%", fg=SUCCESS, bg=SURFACE, font=("Inter", 8))
+        self.st_batt.pack(side="right", padx=10)
 
-        # 2. CHAT LOG
+        # 2. CHAT AREA
+        content_frame = tk.Frame(self.left_panel, bg=BG)
+        content_frame.pack(fill="both", expand=True, padx=20)
+        
         self.chat_log = scrolledtext.ScrolledText(
-            self.main_frame, bg=SURFACE, fg=TEXT, font=("Inter", 11),
-            padx=15, pady=15, borderwidth=0, highlightthickness=0, state="disabled"
+            content_frame, bg=BG, fg=TEXT, font=("Inter", 11),
+            padx=10, pady=10, borderwidth=0, highlightthickness=0, state="disabled"
         )
-        self.chat_log.pack(fill="both", expand=True, padx=20, pady=10)
-        self.chat_log.tag_configure("user", foreground=ACCENT, font=("Inter", 11, "bold"))
-        self.chat_log.tag_configure("manu", foreground=SUCCESS, font=("Inter", 11, "bold"))
-        self.chat_log.tag_configure("msg", foreground=TEXT, font=("Inter", 11))
+        self.chat_log.pack(fill="both", expand=True, pady=(10, 0))
+        
+        # Tag styling for chat bubbles (Task 6)
+        self.chat_log.tag_configure("user_msg", foreground=BG, background=ACCENT, spacing1=5, spacing3=5, lmargin1=100, lmargin2=100, rmargin=10)
+        self.chat_log.tag_configure("manu_msg", foreground=TEXT, background=SURFACE, spacing1=5, spacing3=5, lmargin1=10, lmargin2=10, rmargin=100)
 
         # 3. QUICK ACTIONS
         actions = tk.Frame(self.main_frame, bg=BG)
@@ -140,12 +165,39 @@ class ManuGUI:
     def update_chat(self, sender, message):
         self.root.after(0, self._safe_update_chat, sender, message)
 
+    def _build_hologram_panel(self):
+        """Embed the HologramCanvas in the right panel."""
+        tk.Label(self.right_panel, text="HYPERVISUAL", font=("Inter", 10, "bold"), bg=SURFACE, fg=ACCENT).pack(pady=20)
+        self.holo_viz = HologramCanvas(self.right_panel, width=280, height=280)
+        self.holo_viz.canvas.pack(pady=10)
+        
+        # Add tiny mood label
+        self.mood_lbl = tk.Label(self.right_panel, text="MOOD: NEUTRAL", font=("Inter", 8), bg=SURFACE, fg=MUTED)
+        self.mood_lbl.pack(pady=10)
+
+    def _setup_tray(self):
+        if not HAS_TRAY: return
+        
+        def _on_show(icon, item):
+            self.root.deiconify()
+            
+        def _on_exit(icon, item):
+            icon.stop()
+            self.destroy()
+
+        menu = pystray.Menu(pystray.item('Show', _on_show), pystray.item('Exit', _on_exit))
+        # icon_img = Image.open(...) # User will need an icon.png
+        # self.tray = pystray.Icon("Manu", icon_img, "Manu Assistant", menu)
+        # threading.Thread(target=self.tray.run, daemon=True).start()
+
     def _safe_update_chat(self, sender, message):
         self.chat_log.config(state="normal")
-        tag = "manu" if sender.lower() == "manu" else "user"
-        prefix = f"{sender}: "
-        self.chat_log.insert(tk.END, prefix, tag)
-        self.chat_log.insert(tk.END, f"{message}\n\n", "msg")
+        is_manu = (sender.lower() == "manu")
+        tag = "manu_msg" if is_manu else "user_msg"
+        
+        self.chat_log.insert(tk.END, f"\n {sender} \n", tag)
+        self.chat_log.insert(tk.END, f" {message} \n\n", tag)
+        
         self.chat_log.config(state="disabled")
         self.chat_log.see(tk.END)
 

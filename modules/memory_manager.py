@@ -62,6 +62,16 @@ class MemoryManager:
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+
+            # Habits table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS habits (
+                    pattern TEXT PRIMARY KEY,
+                    frequency TEXT,
+                    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    count INTEGER DEFAULT 1
+                )
+            ''')
             
             conn.commit()
             
@@ -233,6 +243,62 @@ class MemoryManager:
                 (event, detail)
             )
             conn.commit()
+
+    def log_habit(self, pattern, frequency="daily"):
+        """Upsert habit pattern and increment count."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO habits (pattern, frequency, count, last_seen)
+                VALUES (?, ?, 1, CURRENT_TIMESTAMP)
+                ON CONFLICT(pattern) DO UPDATE SET
+                count = count + 1,
+                last_seen = CURRENT_TIMESTAMP
+            ''', (pattern, frequency))
+            conn.commit()
+
+    def get_top_habits(self, limit=5):
+        """Retrieve most frequent habits."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT pattern, count, last_seen FROM habits ORDER BY count DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def find_similar(self, text, limit=3):
+        """Basic keyword overlap search for contextual recall."""
+        words = [w for w in text.split() if len(w) > 3]
+        if not words: return []
+        
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            # Simplified search for any keyword match
+            query = " OR ".join(["message LIKE ?" for _ in words])
+            params = [f"%{w}%" for w in words]
+            cursor.execute(f"SELECT role, message, timestamp FROM interactions WHERE {query} ORDER BY id DESC LIMIT ?", (*params, limit))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def build_personality_context(self):
+        """Construct a personality brief for LLM injection."""
+        habits = self.get_top_habits(3)
+        habit_str = ", ".join([h['pattern'] for h in habits]) if habits else "None yet"
+        user_name = self.get_setting("user_name", config.USER_NAME)
+        
+        context = (
+            f"User Identity: {user_name}. "
+            f"Frequent User Habits/Topics: {habit_str}. "
+            "Your personality: Warm, professional, slightly witty."
+        )
+        return context
+
+    def summarize_last_session(self):
+        """Retrieve and return a brief summary of the last session."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT summary FROM sessions WHERE summary IS NOT NULL ORDER BY id DESC LIMIT 1")
+            row = cursor.fetchone()
+            return row[0] if row else "No previous sessions found."
 
     def build_llm_context(self, limit=8):
         """Return list of {role, content} dicts for LLM injection"""

@@ -24,12 +24,20 @@ class SpeechEngine:
         self.engine.setProperty('rate', config.TTS_RATE)
         self.engine.setProperty('volume', config.TTS_VOLUME)
 
-    def speak(self, text):
-        """Speak text synchronously with a lock to prevent concurrent calls."""
-        with self.lock:
-            print(f"[*] Manu: {text}")
-            self.engine.say(text)
-            self.engine.runAndWait()
+    def speak(self, text, rate=None, volume=None):
+        """TTS output with optional rate/volume modulation."""
+        if not text: return
+        
+        try:
+            with self.lock:
+                if rate: self.engine.setProperty("rate", rate)
+                if volume: self.engine.setProperty("volume", volume)
+                
+                print(f"| Manu: {text}")
+                self.engine.say(text)
+                self.engine.runAndWait()
+        except Exception as e:
+            print(f"TTS Error: {e}")
 
     def speak_async(self, text):
         """Speak in a daemon background thread."""

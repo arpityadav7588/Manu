@@ -4,8 +4,19 @@ import webbrowser
 import datetime
 import re
 import psutil
+try:
+    import pyautogui
+    HAS_PYAUTOGUI = True
+except ImportError:
+    HAS_PYAUTOGUI = False
+
 from PIL import ImageGrab
 import config
+
+from modules.clipboard_ai import ClipboardAI
+from modules.voice_notes import VoiceNotesManager
+from modules.screen_reader import ScreenReader
+from modules.daily_briefing import DailyBriefing
 from skills.skill_loader import load_skills, try_skills
 
 class CommandEngine:
@@ -13,6 +24,13 @@ class CommandEngine:
         self.tts = tts
         self.memory = memory
         self.brain = brain
+        
+        # Phase 4 Managers
+        self.clipboard = ClipboardAI(brain, tts)
+        self.voice_notes = VoiceNotesManager(brain, tts, config.DATA_DIR)
+        self.screen_reader = ScreenReader(brain, tts)
+        self.briefing = DailyBriefing(memory)
+        
         self._skills = {}
         if config.AUTO_LOAD_SKILLS:
             self._skills = load_skills(self.tts, self.memory, self.brain)
@@ -30,10 +48,67 @@ class CommandEngine:
           "github": "https://github.com", "spotify": "spotify"
         }
         
-        # SLEEP/LOCK
-        if any(k in text for k in ["enter sleep mode", "sleep mode", "lock session", "lock manu"]):
+        # SLEEP/LOCK / HIBERNATE
+        if any(k in text for k in ["lock session", "lock manu", "exit mode"]):
             return "LOCKED"
             
+        if "hibernate" in text or "shut down" in text:
+            os.system("shutdown /h")
+            return "Hibernating system..."
+
+        # CLIPBOARD AI (Task 2)
+        if "clipboard" in text or "explain this" in text or "summarize this" in text:
+            mode = "summarize" if "summarize" in text else "explain"
+            if "translate" in text: mode = f"translate to {text.split('to')[-1].strip()}"
+            return self.clipboard.get_and_process(mode)
+
+        # VOICE NOTES (Task 2)
+        if "start a voice note" in text or "take a note" in text:
+            content = text.replace("start a voice note", "").replace("take a note", "").strip()
+            if not content: return "Please tell me what to note down."
+            return self.voice_notes.save_note(content)
+        
+        if "list my notes" in text:
+            return self.voice_notes.list_notes()
+        
+        if "read my last note" in text:
+            return self.voice_notes.read_last_note()
+
+        # SCREEN READER (Task 2)
+        if "on my screen" in text or "describe my screen" in text:
+            return self.screen_reader.describe_screen()
+        
+        if "window title" in text:
+            return f"You are currently in {self.screen_reader.get_active_window_title()}."
+
+        # MORNING BRIEFING (Task 2)
+        if any(k in text for k in ["morning briefing", "brief me", "daily summary"]):
+            user_name = self.memory.get_setting("user_name", config.USER_NAME)
+            return self.briefing.generate(user_name)
+
+        # PYAUTOGUI / OS CONTROL (Task 2)
+        if text.startswith("type "):
+            if HAS_PYAUTOGUI:
+                pyautogui.write(text[5:])
+                return "Typed successfully."
+            return "Install pyautogui for typing support."
+        
+        if "press " in text and ("key" in text or "enter" in text):
+            if HAS_PYAUTOGUI:
+                key = text.split("press ")[-1].replace("key", "").strip()
+                pyautogui.press(key)
+                return f"Pressed {key}."
+            return "Install pyautogui for keypress support."
+
+        # MATH / UNIT CONVERSION (Task 2)
+        if "calculate" in text or "=" in text:
+            try:
+                expr = text.replace("calculate", "").replace("=", "").strip()
+                # Safe eval for basic math
+                return f"Result: {eval(expr, {'__builtins__': None}, {'math': __import__('math')})}"
+            except:
+                pass # Let brain handle complex math
+
         # TIME/DATE
         if any(k in text for k in ["what time is it", "current time", "time now"]):
             return datetime.datetime.now().strftime("%I:%M %p on %A, %B %d")
@@ -44,7 +119,7 @@ class CommandEngine:
             mem = psutil.virtual_memory().percent
             batt = psutil.sensors_battery()
             batt_str = f"{batt.percent}%" if batt else "N/A"
-            return f"System: CPU {cpu}%, RAM {mem}%, Battery {batt_str}."
+            return f"CPU: {cpu}% | RAM: {mem}% | Battery: {batt_str}."
 
         # REMINDERS
         rem_match = re.match(r"(?:set reminder|remind me to)\s+(.+?)\s+(?:at|in)\s+(.+)", text)

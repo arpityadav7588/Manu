@@ -16,8 +16,14 @@ class BrainEngine:
     def __init__(self, memory):
         self.memory = memory
         self.ollama_host = config.OLLAMA_HOST
+        self.current_model = config.LLM_MODEL
         self.ollama_available = False
         self._check_ollama()
+
+    def switch_model(self, model_name):
+        """Update the active Ollama model."""
+        self.current_model = model_name
+        return f"Model switched to {model_name}"
 
     def _check_ollama(self):
         """Check if Ollama is reachable."""
@@ -29,36 +35,67 @@ class BrainEngine:
         except Exception:
             self.ollama_available = False
 
-    def chat(self, text, context=""):
-        """Query Ollama or fallback logic."""
+    def chat(self, text, emotional_context=""):
+        """Query Ollama or fallback logic (Blocking)."""
         if self.ollama_available:
-            return self._query_ollama(text)
+            return self._query_ollama(text, emotional_context)
         else:
             return self._fallback_response(text)
 
-    def _query_ollama(self, text):
+    def stream_chat(self, text, emotional_context=""):
+        """Generator for streaming Ollama responses."""
+        if not self.ollama_available:
+            yield self._fallback_response(text)
+            return
+
+        payload = self._build_payload(text, emotional_context, stream=True)
+        try:
+            r = requests.post(f"{self.ollama_host}/api/chat", json=payload, stream=True, timeout=30)
+            for line in r.iter_lines():
+                if line:
+                    chunk = json.loads(line)
+                    if not chunk.get("done"):
+                        content = chunk.get("message", {}).get("content", "")
+                        yield content
+        except Exception as e:
+            yield f"Error: {e}"
+
+    def _build_payload(self, text, emotional_context="", stream=False):
+        """Construct the Ollama chat payload with full context."""
         user_name = self.memory.get_setting("user_name", config.USER_NAME)
         date_str = datetime.datetime.now().strftime("%A, %B %d, %Y")
         
+        # Phase 1: Dynamic Personality injection
+        personality = self.memory.build_personality_context()
+        
         system_prompt = (
-            f"You are Manu, a warm witty local AI assistant. Keep replies to 2-3 sentences. "
-            f"Never start with 'Certainly!' or 'Of course!'. Today: {date_str}. User: {user_name}."
+            f"You are Manu, a warm witty local AI assistant. {personality} "
+            f"Keep replies to 2-3 sentences. Today: {date_str}. "
+            f"User context: {emotional_context}"
         )
         
         messages = [{"role": "system", "content": system_prompt}]
         
-        # Add historical context from SQLite
+        # Phase 1: Contextual Recall (Task 3)
+        similars = self.memory.find_similar(text, limit=2)
+        if similars:
+            recall_text = " ".join([m['message'] for m in similars])
+            messages.append({"role": "system", "content": f"Relevant past context: {recall_text}"})
+
+        # Add historical context (Task 7: 8-turn rolling)
         history = self.memory.build_llm_context(limit=8)
         messages.extend(history)
         
-        # Add current message
         messages.append({"role": "user", "content": text})
         
-        payload = {
-            "model": config.LLM_MODEL,
+        return {
+            "model": self.current_model,
             "messages": messages,
-            "stream": False
+            "stream": stream
         }
+
+    def _query_ollama(self, text, emotional_context=""):
+        payload = self._build_payload(text, emotional_context, stream=False)
         
         try:
             r = requests.post(f"{self.ollama_host}/api/chat", json=payload, timeout=20)
