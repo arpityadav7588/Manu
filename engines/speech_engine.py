@@ -27,7 +27,7 @@ class SpeechEngine:
     def speak(self, text):
         """Speak text synchronously with a lock to prevent concurrent calls."""
         with self.lock:
-            print(f"🔊 Manu: {text}")
+            print(f"[*] Manu: {text}")
             self.engine.say(text)
             self.engine.runAndWait()
 

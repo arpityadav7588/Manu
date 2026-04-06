@@ -2,8 +2,10 @@ import random
 import re
 
 class Skill_Motivate:
-    def __init__(self, memory):
+    def __init__(self, tts, memory, brain):
+        self.tts = tts
         self.memory = memory
+        self.brain = brain
         self.quotes = [
             "Believe you can and you're halfway there. — Theodore Roosevelt",
             "The only way to do great work is to love what you do. — Steve Jobs",
@@ -22,8 +24,10 @@ class Skill_Motivate:
         return f"Here is a thought for you: {random.choice(self.quotes)}"
 
 class Skill_Random:
-    def __init__(self, memory):
+    def __init__(self, tts, memory, brain):
+        self.tts = tts
         self.memory = memory
+        self.brain = brain
 
     def can_handle(self, text):
         return any(k in text.lower() for k in ["flip a coin", "roll a dice", "roll a die", "heads or tails"])
@@ -46,8 +50,10 @@ class Skill_Random:
         return "I can flip a coin or roll a die for you. What would you like?"
 
 class Skill_WordOfDay:
-    def __init__(self, memory):
+    def __init__(self, tts, memory, brain):
+        self.tts = tts
         self.memory = memory
+        self.brain = brain
         self.words = [
             {"word": "Serendipity", "definition": "The occurrence and development of events by chance in a happy or beneficial way."},
             {"word": "Ephemeral", "definition": "Lasting for a very short time."},

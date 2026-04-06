@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manu Hologram</title>
+    <style>
+        body { margin: 0; padding: 0; background-color: #000; overflow: hidden; }
+        canvas { width: 100vw; height: 100vh; display: block; }
+    </style>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer, orb, wireMesh, glowShell, ring;
+        let isSpeaking = false;
+        const EMOTION_COLORS = {
+            happy: "#34d399", 
+            excited: "#fb923c", 
+            concerned: "#f87171",
+            sleepy: "#94a3b8", 
+            playful: "#fbbf24", 
+            thinking: "#818cf8",
+            neutral: "#6c63ff", 
+            listening: "#22d3ee"
+        };
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 4;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0x6c63ff, 0.4);
+            scene.add(ambientLight);
+            const pointLight = new THREE.PointLight(0xffffff, 1.2);
+            pointLight.position.set(3, 3, 3);
+            scene.add(pointLight);
+
+            // Main Orb
+            const geometry = new THREE.IcosahedronGeometry(1.2, 4);
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x6c63ff,
+                emissive: 0x3b0aba,
+                shininess: 100,
+                transparent: true,
+                opacity: 0.9
+            });
+            orb = new THREE.Mesh(geometry, material);
+            scene.add(orb);
+
+            // Wireframe Shell
+            const wireMaterial = new THREE.MeshBasicMaterial({
+                color: 0xa78bfa,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.3
+            });
+            wireMesh = new THREE.Mesh(geometry, wireMaterial);
+            scene.add(wireMesh);
+
+            // Glow Shell
+            const glowGeo = new THREE.SphereGeometry(1.5, 32, 32);
+            const glowMat = new THREE.MeshBasicMaterial({
+                color: 0x6c63ff,
+                transparent: true,
+                opacity: 0.08,
+                side: THREE.BackSide
+            });
+            glowShell = new THREE.Mesh(glowGeo, glowMat);
+            scene.add(glowShell);
+
+            // Particle Ring
+            const particleCount = 300;
+            const points = [];
+            for (let i = 0; i < particleCount; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const r = 2.2 + Math.random() * 0.4;
+                const x = Math.cos(angle) * r;
+                const y = Math.sin(angle) * r;
+                const z = (Math.random() - 0.5) * 0.5;
+                points.push(x, y, z);
+            }
+            const ringGeo = new THREE.BufferGeometry();
+            ringGeo.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+            const ringMat = new THREE.PointsMaterial({ color: 0xa78bfa, size: 0.03 });
+            ring = new THREE.Points(ringGeo, ringMat);
+            scene.add(ring);
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Idle Rotation
+            orb.rotation.y += 0.004;
+            orb.rotation.x += 0.001;
+            wireMesh.rotation.y += 0.004;
+            wireMesh.rotation.x += 0.001;
+            ring.rotation.z += 0.002;
+
+            // Breathing / Pulse
+            const scale = 1 + Math.sin(Date.now() * 0.002) * 0.03;
+            orb.scale.setScalar(scale);
+            wireMesh.scale.setScalar(scale * 1.01);
+
+            // Speaking Animation
+            if (isSpeaking) {
+                const time = Date.now() * 0.01;
+                const positions = orb.geometry.attributes.position.array;
+                for (let i = 0; i < positions.length; i += 3) {
+                    const x = positions[i];
+                    const y = positions[i + 1];
+                    const z = positions[i + 2];
+                    const noise = Math.sin(x * 5 + time) * 0.08;
+                    // Note: In Three.js, geometry vertices are read-only-ish if buffered.
+                    // For a smooth displacement, we'd normally use a shader.
+                    // Here we'll just simulate a subtle wobble by perturbing the whole mesh scale slightly faster
+                }
+                const speakScale = 1 + Math.sin(Date.now() * 0.03) * 0.06;
+                orb.scale.setScalar(speakScale);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function setEmotion(emotion) {
+            const colorHex = EMOTION_COLORS[emotion] || "#6c63ff";
+            const color = new THREE.Color(colorHex);
+            orb.material.color.set(color);
+            orb.material.emissive.set(color.clone().multiplyScalar(0.5));
+            wireMesh.material.color.set(color);
+            ring.material.color.set(color);
+            glowShell.material.color.set(color);
+        }
+
+        function setSpeaking(speaking) {
+            isSpeaking = speaking;
+        }
+
+        // WebSocket Integration
+        function connectWS() {
+            const ws = new WebSocket("ws://localhost:7788");
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                if (msg.type === "emotion") setEmotion(msg.value);
+                if (msg.type === "speaking") setSpeaking(msg.value);
+            };
+            ws.onclose = () => {
+                setTimeout(connectWS, 1000); // Retry connection
+            };
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        init();
+        connectWS();
+    </script>
+</body>
+</html>

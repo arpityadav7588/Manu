@@ -64,14 +64,25 @@ class MemoryManager:
             ''')
             
             conn.commit()
+            
+            # Check tables for confirmation print
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = [t[0] for t in cursor.fetchall()]
+            print(f"[*] Memory: SQLite database connected. {len(tables)} tables ready.")
 
-    def log_interaction(self, role, msg):
-        """INSERT into interactions table (role, message, timestamp)"""
+    def log_interaction(self, user_text, manu_text):
+        """INSERT both user and manu messages into interactions table."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
+            # Log user message
             cursor.execute(
                 "INSERT INTO interactions (role, message) VALUES (?, ?)",
-                (role, msg)
+                ("user", user_text)
+            )
+            # Log manu message
+            cursor.execute(
+                "INSERT INTO interactions (role, message) VALUES (?, ?)",
+                ("manu", manu_text)
             )
             # Maintain max entries
             cursor.execute(
@@ -80,19 +91,19 @@ class MemoryManager:
             )
             conn.commit()
 
-    def get_recent_interactions(self, n):
+    def get_recent(self, limit=10):
         """SELECT last n rows, return list of dicts"""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT role, message, timestamp FROM interactions ORDER BY id DESC LIMIT ?",
-                (n,)
+                (limit,)
             )
             rows = cursor.fetchall()
             return [dict(row) for row in reversed(rows)]
 
-    def get_last_interaction(self):
+    def get_last_user_message(self):
         """Return last user message string or None"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
@@ -101,6 +112,18 @@ class MemoryManager:
             )
             row = cursor.fetchone()
             return row[0] if row else None
+
+    def search(self, keyword, limit=5):
+        """LIKE search, return list of dicts"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT role, message, timestamp FROM interactions WHERE message LIKE ? ORDER BY id DESC LIMIT ?",
+                (f"%{keyword}%", limit)
+            )
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
 
     def summarize_yesterday(self):
         """Return bullet string of yesterday's user messages"""
@@ -118,18 +141,6 @@ class MemoryManager:
             summary = "\n".join([f"- {row[0]}" for row in rows])
             return f"Yesterday, we talked about:\n{summary}"
 
-    def search_memory(self, keyword, n=5):
-        """LIKE search, return list of dicts"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT role, message, timestamp FROM interactions WHERE message LIKE ? ORDER BY id DESC LIMIT ?",
-                (f"%{keyword}%", n)
-            )
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
-
     def get_setting(self, key, default=None):
         """SELECT from settings table, JSON-decode value"""
         with sqlite3.connect(self.db_path) as conn:
@@ -137,16 +148,20 @@ class MemoryManager:
             cursor.execute("SELECT value FROM settings WHERE key=?", (key,))
             row = cursor.fetchone()
             if row:
-                return json.loads(row[0])
+                try:
+                    return json.loads(row[0])
+                except:
+                    return row[0] # Fallback for non-JSON strings
             return default
 
     def set_setting(self, key, value):
         """UPSERT into settings table"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
+            val_to_save = json.dumps(value) if not isinstance(value, str) else value
             cursor.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                (key, json.dumps(value))
+                (key, val_to_save)
             )
             conn.commit()
 
@@ -168,13 +183,13 @@ class MemoryManager:
             )
             conn.commit()
 
-    def add_reminder(self, title, time_str):
+    def add_reminder(self, title, remind_at_iso):
         """INSERT into reminders table"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO reminders (title, remind_at) VALUES (?, ?)",
-                (title, time_str)
+                (title, remind_at_iso)
             )
             conn.commit()
 
@@ -191,7 +206,7 @@ class MemoryManager:
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
 
-    def mark_reminder_notified(self, reminder_id):
+    def mark_reminder_done(self, reminder_id):
         """UPDATE reminders set notified=1"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
@@ -219,9 +234,9 @@ class MemoryManager:
             )
             conn.commit()
 
-    def build_llm_context(self, limit):
+    def build_llm_context(self, limit=8):
         """Return list of {role, content} dicts for LLM injection"""
-        interactions = self.get_recent_interactions(limit)
+        interactions = self.get_recent(limit)
         context = []
         for interact in interactions:
             role = "assistant" if interact['role'] == "manu" else interact['role']

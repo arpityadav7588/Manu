@@ -1,1 +1,1 @@
-# Init skills package
+# Skills plugin system for Manu

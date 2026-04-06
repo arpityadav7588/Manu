@@ -34,7 +34,7 @@ TTS_VOICE_ID = None
 
 # LLM (Large Language Model)
 LLM_ENGINE = "ollama"
-LLM_MODEL = "llama3.2"
+LLM_MODEL = "llama3:8b"
 OLLAMA_HOST = "http://localhost:11434"
 LLM_TEMPERATURE = 0.7
 LLM_MAX_TOKENS = 300
