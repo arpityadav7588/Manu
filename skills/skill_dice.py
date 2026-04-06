@@ -2,11 +2,18 @@ import random
 from skills.skill_base import BaseSkill
 
 class Skill_Dice(BaseSkill):
-    def can_handle(self, text: str) -> bool:
-        return "roll" in text and "dice" in text
+    """Rolls dice or flips a coin."""
+    def __init__(self, tts, memory, brain):
+        super().__init__(tts, memory, brain)
+
+    @property
+    def triggers(self) -> list[str]:
+        return ["roll a die", "roll dice", "flip a coin", "heads or tails"]
 
     def handle(self, text: str) -> str:
-        sides = 6
-        if "d20" in text: sides = 20
-        res = random.randint(1, sides)
-        return f"Rolling a d{sides}... You got a {res}!"
+        if "flip" in text or "coin" in text:
+            res = random.choice(["Heads", "Tails"])
+            return f"The coin landed on: {res}."
+        else:
+            res = random.randint(1, 6)
+            return f"You rolled a: {res}."

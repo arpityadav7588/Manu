@@ -1,9 +1,8 @@
-import cv2
 import threading
 import time
+import cv2
 import logging
-from pathlib import Path
-import config
+import datetime
 
 try:
     from deepface import DeepFace
@@ -12,20 +11,6 @@ except ImportError:
     HAS_DEEPFACE = False
 
 class FaceEmotionDetector:
-    """
-    Detects user's facial emotion via webcam using DeepFace.
-    Manu reacts contextually to detected emotions.
-    """
-    REACTIONS = {
-        "happy":   "You're looking cheerful! That's contagious.",
-        "sad":     "You seem a little down. Anything I can do to help?",
-        "angry":   "I can sense some frustration. Take a deep breath.",
-        "surprise":"Oh! Something surprised you?",
-        "fear":    "Everything okay? You seem a bit on edge.",
-        "neutral": None,
-        "disgust": "Something doesn't seem right. Need a break?",
-    }
-
     def __init__(self, tts, emotional_manager, cooldown_sec: int = 60):
         self.tts = tts
         self.emotional = emotional_manager

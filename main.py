@@ -1,39 +1,55 @@
+import os
+import sys
 import threading
 import time
-import sys
-import argparse
-from datetime import datetime
+import logging
+import datetime
+from pathlib import Path
 
-# Import components
-import config
+# Manu Core Engines
 from engines.brain_engine import BrainEngine
 from engines.speech_engine import SpeechEngine
 from engines.audio_engine import AudioEngine
 from engines.command_engine import CommandEngine
+
+# Manu Modules
 from modules.memory_manager import MemoryManager
-from modules.security_manager import SecurityManager
 from modules.emotion_manager import EmotionManager
-from modules.face_emotion import FaceEmotionDetector
+from modules.security_manager import SecurityManager
 from modules.wake_word import WakeWordDetector
+from modules.face_emotion import FaceEmotionDetector
+from modules.skill_plugin import SkillLoader
+
+# UI
 from ui.app_gui import ManuGUI
 from ui.hologram import HologramWindow
+import config
 
 class ManuAssistant:
     def __init__(self):
-        print(f"[*] Initializing {config.MANU_NAME} Assistant...")
-        
-        # Phase 1: Bootstrapping (Task 11)
+        print(f"[*] Initializing {config.MANU_NAME} Core...")
         self._bootstrap_folders()
         
+        # 1. Base Modules
         self.memory = MemoryManager()
-        self.speech = SpeechEngine()
         self.emotions = EmotionManager()
-        self.audio = AudioEngine()
+        self.speech = SpeechEngine()
+        
+        # 2. Engines
         self.brain = BrainEngine(self.memory)
+        self.audio = AudioEngine()
+        self.skills = SkillLoader(self.speech, self.memory, self.brain)
+        self.command = CommandEngine(self.brain, self.speech, self.memory, self.skills)
+        
+        # 3. Security
         self.security = SecurityManager(self.speech, self.memory)
-        self.commands = CommandEngine(self.speech, self.memory, self.brain)
+        self.security.first_run_if_needed()
+        
+        # 4. Background Modules
+        self.wake_detector = WakeWordDetector()
         self.face_emotion = FaceEmotionDetector(self.speech, self.emotions)
         
+        # 5. UI & Hologram (Task 1, 6)
         self.hologram = HologramWindow()
         self.gui = ManuGUI(
             on_command_submit=self.handle_command, 
@@ -41,18 +57,14 @@ class ManuAssistant:
             hologram=self.hologram
         )
         
-        self.wake_detector = WakeWordDetector()
-        
-        self.running = True
-        self.is_listening = False
-        
-        # Display session summary (Task 3)
-        self._show_startup_summary()
 
     def _bootstrap_folders(self):
         """Ensure all required data directories exist."""
+        # 1. Ensure root data directory exists (Task 11)
+        config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        
         folders = [
-            "logs", "voice_notes", "screenshots", "captures", "security", "skills", "notes"
+            "logs", "voice_notes", "screenshots", "captures", "security", "skills", "notes", "sounds"
         ]
         for f in folders:
             path = config.DATA_DIR / f

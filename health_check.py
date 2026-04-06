@@ -1,13 +1,6 @@
-import os
 import sys
-import socket
-import importlib.util
+import importlib
 import requests
-import pyaudio
-import cv2
-import config
-
-# Color constants for Windows/Console
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
 RED = "\033[91m"

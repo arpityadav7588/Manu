@@ -21,9 +21,9 @@ class BrainEngine:
         self._check_ollama()
 
     def switch_model(self, model_name):
-        """Update the active Ollama model."""
+        """Update the active Ollama model (Task 7d)."""
         self.current_model = model_name
-        return f"Model switched to {model_name}"
+        return f"Model switched to {model_name}. I'm now using {model_name} for processing."
 
     def _check_ollama(self):
         """Check if Ollama is reachable."""
@@ -43,7 +43,7 @@ class BrainEngine:
             return self._fallback_response(text)
 
     def stream_chat(self, text, emotional_context=""):
-        """Generator for streaming Ollama responses."""
+        """Generator for streaming Ollama responses (Task 7b)."""
         if not self.ollama_available:
             yield self._fallback_response(text)
             return
@@ -61,56 +61,70 @@ class BrainEngine:
             yield f"Error: {e}"
 
     def _build_payload(self, text, emotional_context="", stream=False):
-        """Construct the Ollama chat payload with full context."""
+        """Construct the Ollama chat payload with dynamic context (Task 7a, 7c)."""
         user_name = self.memory.get_setting("user_name", config.USER_NAME)
-        date_str = datetime.datetime.now().strftime("%A, %B %d, %Y")
+        now = datetime.datetime.now()
+        date_str = now.strftime('%A %B %d, %Y at %H:%M')
         
-        # Phase 1: Dynamic Personality injection
-        personality = self.memory.build_personality_context()
+        # 1. Personality & Habit Injection
+        habit_summary = self.memory.get_top_habits(3)
+        habit_str = ", ".join([h['pattern'] for h in habit_summary]) if habit_summary else "No patterns yet."
         
-        system_prompt = (
-            f"You are Manu, a warm witty local AI assistant. {personality} "
-            f"Keep replies to 2-3 sentences. Today: {date_str}. "
-            f"User context: {emotional_context}"
-        )
+        # 2. Dynamic System Prompt (Task 7a)
+        system_prompt = f"""
+        You are Manu, a warm, witty local AI assistant.
+        Current time: {date_str}
+        User's name: {user_name}
+        Current mood: {emotional_context}
+        User's frequent habits: {habit_str}
+
+        Personality rules:
+        - Be concise (2-3 sentences unless asked for detail)
+        - Use mild humor naturally, never forced
+        - Reference past conversations when relevant
+        - Vary response openers (never repeat the same opener twice in a row)
+        - If unsure, ask a clarifying question rather than guessing
+        """
         
         messages = [{"role": "system", "content": system_prompt}]
         
-        # Phase 1: Contextual Recall (Task 3)
-        similars = self.memory.find_similar(text, limit=2)
+        # 3. Contextual Recall (Task 3b)
+        similars = self.memory.find_similar(text, limit=3)
         if similars:
-            recall_text = " ".join([m['message'] for m in similars])
-            messages.append({"role": "system", "content": f"Relevant past context: {recall_text}"})
+            recall_text = " ".join([f"({m['timestamp']}) {m['role']}: {m['message']}" for m in similars])
+            messages.append({"role": "system", "content": f"Recent relevant context: {recall_text}"})
 
-        # Add historical context (Task 7: 8-turn rolling)
-        history = self.memory.build_llm_context(limit=8)
+        # 4. Rolling History (Task 7c)
+        full_history = self.memory.build_llm_context(limit=25)
+        if len(full_history) > 20:
+            # Simple summarization placeholder for very long history
+            summary_msg = {"role": "system", "content": "You have been talking to the user for a while now. Keep the momentum going."}
+            messages.append(summary_msg)
+            history = full_history[-8:] # Keep last 8 turns
+        else:
+            history = full_history[-8:] # Default 8-turn rolling window
+            
         messages.extend(history)
-        
         messages.append({"role": "user", "content": text})
         
         return {
             "model": self.current_model,
             "messages": messages,
-            "stream": stream
+            "stream": stream,
+            "options": {"temperature": 0.7}
         }
 
     def _query_ollama(self, text, emotional_context=""):
         payload = self._build_payload(text, emotional_context, stream=False)
-        
         try:
             r = requests.post(f"{self.ollama_host}/api/chat", json=payload, timeout=20)
             if r.status_code == 200:
                 return r.json().get("message", {}).get("content", "").strip()
-        except Exception as e:
-            print(f"Ollama Error: {e}")
-            
+        except: pass
         return self._fallback_response(text)
 
     def _fallback_response(self, text):
-        text = text.lower()
-        if "hello" in text or "hi " in text: return "Hello! I'm here, though my brain (Ollama) is currently resting."
-        if "who are you" in text: return "I am Manu, your personal assistant. Currently running in basic mode."
-        return "I'm currently offline (no Ollama). How else can I help?"
+        return "I'm currently unable to connect to my brain (Ollama). Please make sure the service is running."
 
     def is_available(self):
         return self.ollama_available

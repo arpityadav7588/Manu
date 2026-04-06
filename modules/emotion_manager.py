@@ -5,27 +5,28 @@ MOOD_CONFIG = {
     "happy":       {"rate_delta": 10,  "volume_delta": 0.05, "color": "#34d399", "emoji": ":)"},
     "excited":     {"rate_delta": 25,  "volume_delta": 0.08, "color": "#fb923c", "emoji": "!!!"},
     "concerned":   {"rate_delta": -15, "volume_delta": -0.05, "color": "#f87171", "emoji": ":-("},
-    "sleepy":      {"rate_delta": -30, "volume_delta": -0.10, "color": "#94a3b8", "emoji": "zzz"},
+    "sleepy":      {"rate_delta": -50, "volume_delta": -0.20, "color": "#94a3b8", "emoji": "zzz"},
     "playful":     {"rate_delta": 15,  "volume_delta": 0.03, "color": "#fbbf24", "emoji": "P-)"},
     "thinking":    {"rate_delta": 0,   "volume_delta": 0.00, "color": "#818cf8", "emoji": "..."},
     "neutral":     {"rate_delta": 0,   "volume_delta": 0.00, "color": "#6c63ff", "emoji": ":-|"},
     "listening":   {"rate_delta": 0,   "volume_delta": 0.00, "color": "#22d3ee", "emoji": "O_O"},
     "grateful":    {"rate_delta": -5,  "volume_delta": 0.02, "color": "#34d399", "emoji": "<3"},
-    "overcharged": {"rate_delta": 40,  "volume_delta": 0.10, "color": "#facc15", "emoji": "⚡"},
-    "low_energy":  {"rate_delta": -25, "volume_delta": -0.15, "color": "#ef4444", "emoji": "🪫"},
+    "overcharged": {"rate_delta": 30,  "volume_delta": 0.15, "color": "#facc15", "emoji": "⚡"},
+    "low_energy":  {"rate_delta": -40, "volume_delta": -0.15, "color": "#ef4444", "emoji": "🪫"},
     "charging":    {"rate_delta": -10, "volume_delta": -0.05, "color": "#22c55e", "emoji": "🔌"},
-    "alert":       {"rate_delta": 5,   "volume_delta": 0.05, "color": "#3b82f6", "emoji": "🔔"}
+    "alert":       {"rate_delta": 20,  "volume_delta": 0.10, "color": "#3b82f6", "emoji": "🔔"}
 }
 
 MOOD_PREFIXES = {
-    "happy": ["Great news!", "I'm happy to help!", "Wonderful!"],
-    "excited": ["Oh wow!", "This is amazing!", "I'm so pumped!"],
-    "concerned": ["I noticed something...", "Pardon me, but...", "Just a heads up..."],
-    "sleepy": ["*Yawns*...", "I'm a bit tired, but...", "Steady as she goes..."],
-    "playful": ["Guess what!", "Hehe!", "Let's do this!"],
-    "overcharged": ["SYSTEM VIBRATING!", "MAX POWER!", "FULL SPEED AHEAD!"],
-    "low_energy": ["Battery low...", "I'm feeling weak...", "Powering down slightly..."],
-    "charging": ["Refreshing...", "Getting juice...", "Ah, that's better..."],
+    "happy": ["Sure thing!", "Absolutely!", "Let's go!", "Of course!", "Great news!", "Wonderful!"],
+    "excited": ["Oh wow!", "This is amazing!", "I'm so pumped!", "Fantastic!"],
+    "concerned": ["Hmm...", "Let me check...", "That's interesting...", "Wait—", "I noticed something...", "Just a heads up..."],
+    "sleepy": ["*Yawns*...", "I'm a bit tired, but...", "Steady as she goes...", "Drowsing..."],
+    "playful": ["Guess what!", "Hehe!", "Let's do this!", "You want to play?"],
+    "overcharged": ["SYSTEM VIBRATING!", "MAX POWER!", "FULL SPEED AHEAD!", "EXTREME ENERGY!"],
+    "low_energy": ["Battery low...", "I'm feeling weak...", "Powering down slightly...", "Fading out..."],
+    "charging": ["Refreshing...", "Getting juice...", "Ah, that's better...", "Refilling circuits..."],
+    "alert": ["Security Alert!", "Warning—", "I sense danger...", "Staying vigilant!"],
     "neutral": ["", "", ""]
 }
 

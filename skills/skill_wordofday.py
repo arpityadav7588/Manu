@@ -1,19 +1,22 @@
-import random
 from skills.skill_base import BaseSkill
 
 class Skill_WordOfDay(BaseSkill):
+    """Provides a daily word with its definition."""
     def __init__(self, tts, memory, brain):
         super().__init__(tts, memory, brain)
         self.words = [
-            ("Ephemeral", "Lasting for a very short time."),
-            ("Serendipity", "The occurrence of events by chance in a happy or beneficial way."),
-            ("Lethargic", "Affected by lethargy; sluggish and apathetic."),
-            ("Eloquence", "Fluent or persuasive speaking or writing.")
+            ("Serendipity", "The occurrence and development of events by chance in a happy or beneficial way."),
+            ("Ethereal", "Extremely delicate and light in a way that seems too perfect for this world."),
+            ("Melancholy", "A feeling of pensive sadness, typically with no obvious cause."),
+            ("Euphoria", "A feeling or state of intense excitement and happiness."),
+            ("Luminous", "Full of or shedding light; bright or shining, especially in the dark.")
         ]
 
-    def can_handle(self, text: str) -> bool:
-        return "word of the day" in text or "learn a new word" in text
+    @property
+    def triggers(self) -> list[str]:
+        return ["word of the day", "tell me a new word", "vocabulary"]
 
     def handle(self, text: str) -> str:
-        word, meaning = random.choice(self.words)
-        return f"Today's word is {word}. It means: {meaning}"
+        import random
+        w, d = random.choice(self.words)
+        return f"Today's word is {w}: {d}"

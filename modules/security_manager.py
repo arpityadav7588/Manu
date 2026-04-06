@@ -3,9 +3,9 @@ import time
 import getpass
 import os
 import datetime
+import json
+import pickle
 from pathlib import Path
-import socket
-import re
 import config
 
 try:
@@ -27,13 +27,14 @@ class SecurityManager:
         self.memory = memory
         self._is_locked = True
         self.auth_attempts = 0
+        self.face_encoding_path = config.DATA_DIR / "security" / "face_encoding.pkl"
 
     @property
     def is_locked(self):
         return self._is_locked
 
     def verify_password(self, password):
-        """Hash input and compare to stored hash from memory.get_setting('password_hash')."""
+        """Hash input and compare to stored hash; also check 4-digit PIN."""
         stored_hash = self.memory.get_setting("password_hash")
         stored_pin = self.memory.get_setting("quick_pin")
         
@@ -41,24 +42,33 @@ class SecurityManager:
             return False
 
         input_hash = self.hash_password(password)
-        if input_hash == stored_hash or password == stored_pin:
+        if input_hash == stored_hash or (stored_pin and password == stored_pin):
             self.auth_attempts = 0
             self._is_locked = False
             return True
         else:
             self.auth_attempts += 1
             if self.auth_attempts >= 2:
-                self.log_intrusion("Failed Password/PIN")
+                # Capture intruder after 2 fails
+                self.log_intrusion(f"Failed Auth (Attempt {self.auth_attempts})")
+                
+                # Optional: Try face verification as a last resort
+                if self.verify_face():
+                    self.auth_attempts = 0
+                    self._is_locked = False
+                    return True
             return False
 
     def verify_face(self) -> bool:
-        """Capture a frame and compare to enrolled face encodings."""
+        """Capture a frame and compare to enrolled face encodings from pickle."""
         if not HAS_FACE or not HAS_CV2: return False
         
-        enrolled_json = self.memory.get_setting("face_encodings")
-        if not enrolled_json: return False
+        if not self.face_encoding_path.exists(): return False
         
-        enrolled_encodings = [np.array(e) for e in json.loads(enrolled_json)]
+        try:
+            with open(self.face_encoding_path, "rb") as f:
+                enrolled_encodings = pickle.load(f)
+        except: return False
         
         cap = cv2.VideoCapture(0)
         ret, frame = cap.read()
@@ -66,23 +76,19 @@ class SecurityManager:
         
         if not ret: return False
         
-        # Resize for speed
-        small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-        rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-        
-        face_locations = face_recognition.face_locations(rgb_small_frame)
-        face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        face_locations = face_recognition.face_locations(rgb_frame)
+        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
         
         for face_encoding in face_encodings:
             matches = face_recognition.compare_faces(enrolled_encodings, face_encoding, tolerance=0.6)
             if True in matches:
-                self._is_locked = False
                 return True
         
         return False
 
     def enroll_face(self, callback=None):
-        """Webcam wizard to capture 5 frames of the user's face."""
+        """Capture 5 webcam frames and save face encodings to pkl."""
         if not HAS_FACE or not HAS_CV2: return False
         
         cap = cv2.VideoCapture(0)
@@ -98,14 +104,16 @@ class SecurityManager:
             face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
             
             if face_encodings:
-                encodings.append(face_encodings[0].tolist())
+                encodings.append(face_encodings[0])
                 count += 1
                 if callback: callback(count)
+                print(f"[*] Enrolled face frame {count}/5")
                 time.sleep(0.5)
         
         cap.release()
         if encodings:
-            self.memory.set_setting("face_encodings", json.dumps(encodings))
+            with open(self.face_encoding_path, "wb") as f:
+                pickle.dump(encodings, f)
             return True
         return False
 
@@ -122,16 +130,26 @@ class SecurityManager:
         while True:
             pwd = input("Set a security password: ")
             if len(pwd) < 1: continue
-            
-            pwd_hash = self.hash_password(pwd)
-            self.memory.set_setting("password_hash", pwd_hash)
+            self.memory.set_setting("password_hash", self.hash_password(pwd))
             break
             
+        while True:
+            pin = input("Set a 4-digit quick PIN (optional, Enter to skip): ").strip()
+            if not pin: break
+            if len(pin) == 4 and pin.isdigit():
+                self.memory.set_setting("quick_pin", pin)
+                break
+            print("PIN must be exactly 4 digits.")
+            
+        print("\n[*] Optional: Enroll face for bio-verification?")
+        if input("Enroll now? (y/n): ").lower() == 'y':
+            self.enroll_face()
+
         print(f"Welcome, {name}! Security initialized.")
-        self.tts.speak(f"Welcome! Password set. I'm ready to serve you, {name}!")
+        self.tts.speak(f"Welcome! Security set. I'm ready, {name}!")
 
     def log_intrusion(self, reason):
-        """Capture frame and log intrusion detail to database and log.txt."""
+        """Capture frame and log intrusion detail to data/captures/intruder_*.jpg."""
         if not HAS_CV2: return
         
         try:
@@ -141,18 +159,20 @@ class SecurityManager:
             
             if ret:
                 ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = config.DATA_DIR / "captures" / f"intrusion_{ts}.jpg"
+                filename = config.DATA_DIR / "captures" / f"intruder_{ts}.jpg"
                 cv2.imwrite(str(filename), frame)
                 
-                detail = f"Reason: {reason} | Image: {filename.name}"
-                self.memory.log_security_event("INTRUSION", detail)
+                log_detail = f"[{datetime.datetime.now()}] FAILED_AUTH | {reason} | Photo: {filename.name}"
                 
-                # Append to log.txt for Task 5
+                # Database log
+                self.memory.log_security_event("INTRUSION", log_detail)
+                
+                # File log (Task 5c)
                 log_path = config.DATA_DIR / "security" / "log.txt"
                 with open(log_path, "a") as f:
-                    f.write(f"[{ts}] {detail}\n")
+                    f.write(f"{log_detail}\n")
                     
-                print(f"⚠️ Security: Intrusion logged at {ts}")
+                print(f"⚠️ Security: Intrusion captured: {filename.name}")
         except Exception as e:
             print(f"Intrusion capture error: {e}")
 

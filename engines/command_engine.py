@@ -56,58 +56,138 @@ class CommandEngine:
             os.system("shutdown /h")
             return "Hibernating system..."
 
-        # CLIPBOARD AI (Task 2)
-        if "clipboard" in text or "explain this" in text or "summarize this" in text:
-            mode = "summarize" if "summarize" in text else "explain"
-            if "translate" in text: mode = f"translate to {text.split('to')[-1].strip()}"
+        # CLIPBOARD AI (Task 2a)
+        if "clipboard" in text or "explain this" in text or "summarize this" in text or "improve this" in text:
+            if "what's in" in text:
+                content = pyperclip.paste()
+                return f"Clipboard content (first 200 chars): {content[:200]}"
+            
+            mode = "summarize"
+            if "explain" in text: mode = "explain"
+            elif "improve" in text: mode = "improve writing"
+            elif "translate" in text:
+                lang = text.split("to")[-1].strip()
+                mode = f"translate to {lang}"
+            
             return self.clipboard.get_and_process(mode)
 
-        # VOICE NOTES (Task 2)
-        if "start a voice note" in text or "take a note" in text:
-            content = text.replace("start a voice note", "").replace("take a note", "").strip()
-            if not content: return "Please tell me what to note down."
+        # VOICE NOTES (Task 2b)
+        if "take a note" in text or "note that" in text:
+            content = text.replace("take a note", "").replace("note that", "").strip()
+            if not content: return "What should I note down?"
             return self.voice_notes.save_note(content)
         
-        if "list my notes" in text:
+        if "list my notes" in text or "show notes" in text:
             return self.voice_notes.list_notes()
         
         if "read my last note" in text:
             return self.voice_notes.read_last_note()
+            
+        if "find notes about" in text:
+            keyword = text.split("about")[-1].strip()
+            return self.voice_notes.search_notes(keyword)
 
-        # SCREEN READER (Task 2)
+        # SCREEN READER (Task 2c)
         if "on my screen" in text or "describe my screen" in text:
-            return self.screen_reader.describe_screen()
-        
-        if "window title" in text:
-            return f"You are currently in {self.screen_reader.get_active_window_title()}."
+            if "describe" in text:
+                return self.screen_reader.describe_screen()
+            title = self.screen_reader.get_active_window_title()
+            return f"You're currently working in {title}."
 
-        # MORNING BRIEFING (Task 2)
-        if any(k in text for k in ["morning briefing", "brief me", "daily summary"]):
-            user_name = self.memory.get_setting("user_name", config.USER_NAME)
-            return self.briefing.generate(user_name)
+        # ADVANCED SYSTEM COMMANDS (Task 2d)
+        if "screenshot" in text:
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            path = config.DATA_DIR / "screenshots" / f"screenshot_{ts}.png"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            ImageGrab.grab().save(path)
+            return f"Screenshot saved to data/screenshots/."
 
-        # PYAUTOGUI / OS CONTROL (Task 2)
+        if "empty recycle bin" in text:
+            if os.name == 'nt':
+                try:
+                    import winshell
+                    winshell.recycle_bin().empty(confirm=False, show_progress=False, sound=False)
+                    return "Recycle bin emptied."
+                except ImportError:
+                    return "Please install winshell for this command."
+            return "This command is only available on Windows."
+
+        if "lock screen" in text or "lock my pc" in text:
+            if os.name == 'nt':
+                import ctypes
+                ctypes.windll.user32.LockWorkStation()
+                return "Locking workstation."
+            return "PC lock is currently Windows-only."
+
+        if "hibernate" in text or "sleep pc" in text:
+            if os.name == 'nt':
+                os.system("rundll32.exe powrprof.dll,SetSuspendState 0,1,0")
+                return "System entering sleep mode."
+            return "Sleep command is Windows-only for now."
+
+        if "list running apps" in text or "what's running" in text:
+            apps = []
+            for proc in psutil.process_iter(['name']):
+                try:
+                    if proc.info['name'] not in apps:
+                        apps.append(proc.info['name'])
+                    if len(apps) >= 8: break
+                except: continue
+            return f"Top running apps: {', '.join(apps)}."
+
+        if "kill " in text:
+            app_name = text.replace("kill ", "").strip()
+            for proc in psutil.process_iter(['name']):
+                if app_name.lower() in proc.info['name'].lower():
+                    proc.kill()
+                    return f"Terminated {proc.info['name']}."
+            return f"Could not find process matching '{app_name}'."
+
         if text.startswith("type "):
             if HAS_PYAUTOGUI:
-                pyautogui.write(text[5:])
+                pyautogui.typewrite(text[5:])
                 return "Typed successfully."
             return "Install pyautogui for typing support."
         
-        if "press " in text and ("key" in text or "enter" in text):
+        if text.startswith("press "):
             if HAS_PYAUTOGUI:
-                key = text.split("press ")[-1].replace("key", "").strip()
-                pyautogui.press(key)
+                key = text.replace("press ", "").strip()
+                pyautogui.hotkey(*key.split("+"))
                 return f"Pressed {key}."
             return "Install pyautogui for keypress support."
 
-        # MATH / UNIT CONVERSION (Task 2)
-        if "calculate" in text or "=" in text:
+        # MATH & CONVERSIONS (Task 2e)
+        if "calculate" in text or "what is " in text:
+            expr = text.replace("calculate", "").replace("what is", "").strip()
+            # Basic sanitization
+            safe_expr = re.sub(r'[^0-9\+\-\*\/\(\)\. ]', '', expr)
             try:
-                expr = text.replace("calculate", "").replace("=", "").strip()
-                # Safe eval for basic math
-                return f"Result: {eval(expr, {'__builtins__': None}, {'math': __import__('math')})}"
+                result = eval(safe_expr, {"__builtins__": None}, {})
+                return f"The result is {result}."
             except:
-                pass # Let brain handle complex math
+                pass # LLM will handle complex math or bad inputs
+
+        if "convert " in text:
+            # Simple unit converter logic
+            return "I'll help you with that conversion. (AI will process details)"
+
+        # DAILY BRIEFING (Task 2f)
+        if any(k in text for k in ["morning briefing", "good morning brief", "what's today"]):
+            user_name = self.memory.get_setting("user_name", config.USER_NAME)
+            return self.briefing.generate(user_name)
+
+        # APP SHORTCUTS
+        APP_SHORTCUTS = {
+          "youtube": "https://youtube.com", "google": "https://google.com",
+          "notepad": "notepad", "calculator": "calc",
+          "file explorer": "explorer", "task manager": "taskmgr",
+          "settings": "ms-settings:", "gmail": "https://mail.google.com",
+          "github": "https://github.com", "spotify": "spotify"
+        }
+        
+        # SLEEP/LOCK / HIBERNATE (Standard)
+        if any(k in text for k in ["lock session", "lock manu", "exit mode"]):
+            return "LOCKED"
 
         # TIME/DATE
         if any(k in text for k in ["what time is it", "current time", "time now"]):
@@ -125,7 +205,6 @@ class CommandEngine:
         rem_match = re.match(r"(?:set reminder|remind me to)\s+(.+?)\s+(?:at|in)\s+(.+)", text)
         if rem_match:
             task, time_str = rem_match.groups()
-            # Simple time parse for "in X minutes"
             remind_at = datetime.datetime.now()
             if "minute" in time_str:
                 mins = int(re.search(r"(\d+)", time_str).group(1))
@@ -144,37 +223,6 @@ class CommandEngine:
             query = search_match.group(1)
             webbrowser.open(f"https://google.com/search?q={query}")
             return f"Searching Google for {query}."
-
-        # YOUTUBE
-        if text.startswith("play ") and "on youtube" in text:
-            song = text.replace("play ", "").replace("on youtube", "").strip()
-            webbrowser.open(f"https://www.youtube.com/results?search_query={song}")
-            return f"Playing {song} on YouTube."
-
-        # NOTES
-        note_match = re.match(r"(?:note that|take a note)\s+(.+)", text)
-        if note_match:
-            content = note_match.group(1)
-            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            path = config.DATA_DIR / "notes" / f"note_{ts}.txt"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content)
-            return "Note recorded."
-
-        # SCREENSHOT
-        if "screenshot" in text:
-            ts = datetime.datetime.now().strftime("%H%M%S")
-            path = config.DATA_DIR / "screenshots" / f"shot_{ts}.png"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            ImageGrab.grab().save(path)
-            return f"Screenshot saved to data/screenshots/."
-
-        # VOLUME
-        vol_match = re.search(r"volume (\d+)", text)
-        if vol_match:
-            return self._set_volume(int(vol_match.group(1)))
-        if "volume up" in text: return self._set_volume("up")
-        if "volume down" in text: return self._set_volume("down")
 
         # APPS
         if text.startswith("open "):

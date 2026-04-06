@@ -21,7 +21,18 @@ class MemoryManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     role TEXT,
                     message TEXT,
+                    tags TEXT,
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Voice notes table (Task 3a)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS voice_notes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT,
+                    content TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
@@ -63,10 +74,11 @@ class MemoryManager:
                 )
             ''')
 
-            # Habits table
+            # Habits table (Task 3a)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS habits (
-                    pattern TEXT PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pattern TEXT UNIQUE,
                     frequency TEXT,
                     last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
                     count INTEGER DEFAULT 1
@@ -243,41 +255,6 @@ class MemoryManager:
                 (event, detail)
             )
             conn.commit()
-
-    def log_habit(self, pattern, frequency="daily"):
-        """Upsert habit pattern and increment count."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO habits (pattern, frequency, count, last_seen)
-                VALUES (?, ?, 1, CURRENT_TIMESTAMP)
-                ON CONFLICT(pattern) DO UPDATE SET
-                count = count + 1,
-                last_seen = CURRENT_TIMESTAMP
-            ''', (pattern, frequency))
-            conn.commit()
-
-    def get_top_habits(self, limit=5):
-        """Retrieve most frequent habits."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT pattern, count, last_seen FROM habits ORDER BY count DESC LIMIT ?", (limit,))
-            return [dict(row) for row in cursor.fetchall()]
-
-    def find_similar(self, text, limit=3):
-        """Basic keyword overlap search for contextual recall."""
-        words = [w for w in text.split() if len(w) > 3]
-        if not words: return []
-        
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            # Simplified search for any keyword match
-            query = " OR ".join(["message LIKE ?" for _ in words])
-            params = [f"%{w}%" for w in words]
-            cursor.execute(f"SELECT role, message, timestamp FROM interactions WHERE {query} ORDER BY id DESC LIMIT ?", (*params, limit))
-            return [dict(row) for row in cursor.fetchall()]
 
     def build_personality_context(self):
         """Construct a personality brief for LLM injection."""
