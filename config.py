@@ -91,4 +91,25 @@ APP_SHORTCUTS = {
     "paint": "mspaint"
 }
 
+# --- Phase 2: Advanced Settings ---
+VISION_MODEL = "moondream"  # Recommended lightweight vision model
+SCREENSHOT_RESIZE = (800, 450)
+SAVE_SCREENSHOTS = True
+
+# Daily Briefing
+DEFAULT_CITY = "London"
+BRIEFING_TIME = "08:00"
+
+# Face Emotion Detection
+FACE_COOLDOWN_SEC = 60
+FACE_EMOTION_SENSITIVITY = 0.6
+FACE_DETECTION_INTERVAL = 10
+
+# Wake Word (openwakeword)
+WAKEWORD_MODELS = ["hey_manu", "alexa"]
+WAKEWORD_CONFIDENCE = 0.6
+
+# Clipboard
+CLIPBOARD_MONITOR_INTERVAL = 2.0
+
 AUTO_LOAD_SKILLS = True

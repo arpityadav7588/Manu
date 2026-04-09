@@ -2,118 +2,122 @@ import random
 import config
 
 MOOD_CONFIG = {
-    "happy":       {"rate_delta": 10,  "volume_delta": 0.05, "color": "#34d399", "emoji": ":)"},
-    "excited":     {"rate_delta": 25,  "volume_delta": 0.08, "color": "#fb923c", "emoji": "!!!"},
-    "concerned":   {"rate_delta": -15, "volume_delta": -0.05, "color": "#f87171", "emoji": ":-("},
-    "sleepy":      {"rate_delta": -50, "volume_delta": -0.20, "color": "#94a3b8", "emoji": "zzz"},
-    "playful":     {"rate_delta": 15,  "volume_delta": 0.03, "color": "#fbbf24", "emoji": "P-)"},
-    "thinking":    {"rate_delta": 0,   "volume_delta": 0.00, "color": "#818cf8", "emoji": "..."},
-    "neutral":     {"rate_delta": 0,   "volume_delta": 0.00, "color": "#6c63ff", "emoji": ":-|"},
-    "listening":   {"rate_delta": 0,   "volume_delta": 0.00, "color": "#22d3ee", "emoji": "O_O"},
-    "grateful":    {"rate_delta": -5,  "volume_delta": 0.02, "color": "#34d399", "emoji": "<3"},
-    "overcharged": {"rate_delta": 30,  "volume_delta": 0.15, "color": "#facc15", "emoji": "⚡"},
-    "low_energy":  {"rate_delta": -40, "volume_delta": -0.15, "color": "#ef4444", "emoji": "🪫"},
-    "charging":    {"rate_delta": -10, "volume_delta": -0.05, "color": "#22c55e", "emoji": "🔌"},
-    "alert":       {"rate_delta": 20,  "volume_delta": 0.10, "color": "#3b82f6", "emoji": "🔔"}
+    "happy":       {"rate": 10,  "volume": 0.05, "emoji": "😊"},
+    "excited":     {"rate": 30,  "volume": 0.10, "emoji": "🤩"},
+    "concerned":   {"rate": -15, "volume": -0.05, "emoji": "😟"},
+    "sleepy":      {"rate": -40, "volume": -0.20, "emoji": "😴"},
+    "playful":     {"rate": 20,  "volume": 0.03, "emoji": "😜"},
+    "neutral":     {"rate": 0,   "volume": 0.00, "emoji": "🙂"},
+    "grateful":    {"rate": -5,  "volume": 0.05, "emoji": "🙏"},
+    "error":       {"rate": 0,   "volume": 0.10, "emoji": "😵"},
+    "thinking":    {"rate": -10, "volume": -0.05, "emoji": "🤔"},
+    "listening":   {"rate": 0,   "volume": 0.00, "emoji": "👂"}
 }
 
 MOOD_PREFIXES = {
-    "happy": ["Sure thing!", "Absolutely!", "Let's go!", "Of course!", "Great news!", "Wonderful!"],
-    "excited": ["Oh wow!", "This is amazing!", "I'm so pumped!", "Fantastic!"],
-    "concerned": ["Hmm...", "Let me check...", "That's interesting...", "Wait—", "I noticed something...", "Just a heads up..."],
-    "sleepy": ["*Yawns*...", "I'm a bit tired, but...", "Steady as she goes...", "Drowsing..."],
-    "playful": ["Guess what!", "Hehe!", "Let's do this!", "You want to play?"],
-    "overcharged": ["SYSTEM VIBRATING!", "MAX POWER!", "FULL SPEED AHEAD!", "EXTREME ENERGY!"],
-    "low_energy": ["Battery low...", "I'm feeling weak...", "Powering down slightly...", "Fading out..."],
-    "charging": ["Refreshing...", "Getting juice...", "Ah, that's better...", "Refilling circuits..."],
-    "alert": ["Security Alert!", "Warning—", "I sense danger...", "Staying vigilant!"],
+    "happy": ["Sure thing!", "Absolutely!", "Great news!", "Wonderful!", "Happy to help!"],
+    "excited": ["Oh wow!", "This is amazing!", "I'm so pumped!", "Fantastic!", "Let's go!"],
+    "concerned": ["Hmm...", "Let me check...", "That's interesting...", "Wait—", "I noticed something..."],
+    "sleepy": ["*Yawns*...", "I'm a bit tired, but...", "Drowsing here...", "Slow and steady..."],
+    "playful": ["Guess what!", "Hehe!", "Let's do this!", "You want to play?", "Fun times!"],
+    "grateful": ["Aww, thank you!", "That's so kind of you!", "Refreshing!", "Grateful for you!"],
+    "error": ["Oops...", "System alert—", "Something went wrong...", "Houston, we have a problem..."],
+    "thinking": ["Let me see...", "Processing that...", "Thinking about it...", "Give me a moment..."],
+    "listening": ["I'm listening...", "Go ahead!", "All ears!", "Standing by..."],
     "neutral": ["", "", ""]
 }
 
 class EmotionManager:
-    def __init__(self, tts_engine=None):
+    def __init__(self):
         self._mood = "neutral"
-        self._last_battery_alert = 0
-        self.mood_config = MOOD_CONFIG
-        print(f"[*] Emotion: Dynamics loaded ({len(self.mood_config)} moods).")
+        self._last_battery_pct = 100
+        self._last_battery_plugged = True
+        self._last_internet_state = True
+        self._last_battery_alert_time = 0
 
-    @property
-    def current_mood(self):
-        return self._mood
-
-    def set_mood(self, mood):
+    def set_mood(self, mood: str):
+        """Set active mood (Upgrade 4)."""
         if mood in MOOD_CONFIG:
             self._mood = mood
         else:
             self._mood = "neutral"
 
-    def get_mood_emoji(self):
+    @property
+    def current_mood(self):
+        return self._mood
+
+    def get_mood_emoji(self) -> str:
+        """Return emoji for current mood (Upgrade 4)."""
         return MOOD_CONFIG.get(self._mood, MOOD_CONFIG["neutral"])["emoji"]
 
-    def get_hologram_color(self):
-        """Return hex color for current mood for the 3D avatar."""
-        return MOOD_CONFIG.get(self._mood, MOOD_CONFIG["neutral"])["color"]
-
-    def get_tts_params(self, base_rate=175, base_vol=0.92):
-        """Return (rate, volume) based on current mood."""
-        config = MOOD_CONFIG.get(self._mood, MOOD_CONFIG["neutral"])
-        new_rate = max(100, min(280, base_rate + config["rate_delta"]))
-        new_vol = max(0.2, min(1.0, base_vol + config["volume_delta"]))
-        return int(new_rate), float(new_vol)
-
-    def get_prefix(self):
-        """Return a random prefix phrase based on mood."""
+    def get_contextual_prefix(self) -> str:
+        """Return random short phrase matching current mood (Upgrade 4)."""
         prefixes = MOOD_PREFIXES.get(self._mood, [""])
         return random.choice(prefixes)
 
-    def apply_voice_modulation(self, tts_engine, base_rate=175, base_vol=0.92):
-        """Apply rate and volume deltas to the TTS engine based on mood."""
-        rate, vol = self.get_tts_params(base_rate, base_vol)
-        
-        try:
-            tts_engine.setProperty("rate", rate)
-            tts_engine.setProperty("volume", vol)
-        except Exception as e:
-            print(f"[!] Voice modulation error: {e}")
+    def get_tts_params(self, base_rate=175, base_volume=0.92):
+        """Return (rate, volume) adjusted by mood (Upgrade 4)."""
+        deltas = MOOD_CONFIG.get(self._mood, MOOD_CONFIG["neutral"])
+        new_rate = max(100, min(280, base_rate + deltas["rate"]))
+        new_volume = max(0.2, min(1.0, base_volume + deltas["volume"]))
+        return int(new_rate), float(new_volume)
 
-    def update_mood_on_event(self, event, detail=None):
-        if event == "battery_low":
-            self.set_mood("concerned")
-        elif event == "battery_full":
-            self.set_mood("playful")
-        elif event == "charging":
-            self.set_mood("grateful")
-        elif event == "internet_disconnected":
-            self.set_mood("concerned")
-        elif event == "internet_connected":
-            self.set_mood("happy")
-        elif event == "error":
-            self.set_mood("concerned")
-
-    def react_to_battery_event(self, percent, plugged):
-        """Check battery status and return a personality-driven string."""
-        if plugged and percent >= 95:
-            self.set_mood("playful")
-            return "I'm fully charged! Ready for some fun? Maybe a joke?"
-        elif plugged and percent < 95:
-            self.set_mood("grateful")
-            return "Ah, that's refreshing. Thanks for the electricity!"
-        elif not plugged and percent <= 20:
-            self.set_mood("concerned")
-            return f"I'm feeling a bit weak ({percent}%). Could we find a power source?"
+    def react_to_battery(self, pct, plugged, charging) -> str:
+        """Task 4: Dynamic battery reactions."""
+        # Avoid repeat notifications if state unchanged
+        if (pct == self._last_battery_pct and plugged == self._last_battery_plugged):
+            return None
         
+        self._last_battery_pct = pct
+        self._last_battery_plugged = plugged
+
+        # if full+plugged: playful joke
+        if pct >= 95 and plugged:
+            self.set_mood("playful")
+            return "I'm fully charged! I feel like I could run a marathon... or at least compute one!"
+        
+        # if charging: grateful/warm thank-you
+        if charging:
+            self.set_mood("grateful")
+            return "Ah, that's better. Thanks for the electricity, I was getting a bit faint!"
+            
+        # if low+unplugged (<=20%): worried message
+        if pct <= 20 and not plugged:
+            self.set_mood("concerned")
+            return f"Heads up! My battery is down to {pct}%. Could we find a power source?"
+
         return None
 
-    def react_to_joke(self):
+    def react_to_internet(self, connected: bool) -> str:
+        """Task 4: Internet state reactions."""
+        if connected == self._last_internet_state:
+            return None
+        self._last_internet_state = connected
+        if connected:
+            self.set_mood("happy")
+            return "We're back online! The world feels so much bigger now."
+        else:
+            self.set_mood("concerned")
+            return "I've lost connection to the internet. I'll still do my best locally!"
+
+    def react_to_error(self, context: str) -> str:
+        """Task 4: Error reactions."""
+        self.set_mood("error")
+        return f"I hit a snag while {context}. My apologies!"
+
+    def react_to_joke_request(self) -> str:
+        """Task 4: Set playful mood and return a random joke."""
         self.set_mood("playful")
         jokes = [
             "Why do programmers prefer dark mode? Because light attracts bugs!",
             "How many programmers does it take to change a light bulb? None, that's a hardware problem.",
             "What's a programmer's favorite hangout place? The Foo Bar.",
-            "Real programmers count from 0."
+            "Real programmers count from 0.",
+            "Algorithm: A word used by programmers when they don't want to explain what they did."
         ]
         return random.choice(jokes)
 
-    def react_to_compliment(self):
+    def react_to_compliment(self) -> str:
+        """Task 4: Set grateful mood."""
         self.set_mood("grateful")
-        return "Aww, thank you! You're making my circuits glow."
+        return "That's so kind of you! You're making me blush... if I had a face."

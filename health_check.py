@@ -1,6 +1,11 @@
 import sys
-import importlib
+import importlib.util
 import requests
+import pyaudio
+import cv2
+from PIL import Image
+import config
+
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
 RED = "\033[91m"
@@ -12,7 +17,7 @@ CROSS = f"{RED}[X]{RESET}"
 
 def check_module(name):
     """Check if a module is installed."""
-    if importlib.util.find_spec(name) is not None:
+    if importlib.util.find_spec(name.lower().replace("-", "_")) is not None:
         return f"{TICK} {name}"
     else:
         return f"{CROSS} {name} (Missing)"
@@ -35,8 +40,8 @@ def check_mic():
         count = p.get_device_count()
         p.terminate()
         return f"{TICK} Microphone: {info['name']} ({count} devices found)"
-    except:
-        return f"{CROSS} Microphone: Not accessible"
+    except Exception as e:
+        return f"{CROSS} Microphone: Not accessible ({e})"
 
 def check_camera():
     """Check if a webcam is accessible."""
@@ -54,7 +59,7 @@ def list_skills():
     """List loaded skills from the skills/ directory."""
     from skills.skill_loader import load_skills
     # Mock engines for loader
-    skills = load_skills(None, None, None)
+    skills = load_skills({})
     if skills:
         return f"{TICK} Skills Loaded: {', '.join(skills.keys())}"
     return f"{WARN} Skills: None found in skills/"
@@ -64,13 +69,8 @@ def run_checks():
     
     # Core Dependencies
     print("--- Core Dependencies ---")
-    deps = ["speech_recognition", "pyaudio", "faster_whisper", "pyttsx3", "ollama", "cv2", "PIL", "pyperclip", "psutil"]
+    deps = ["speech_recognition", "pyaudio", "faster_whisper", "pyttsx3", "requests", "psutil", "pyperclip", "opencv-python", "pillow"]
     for d in deps: print(check_module(d))
-    
-    # New Task Dependencies
-    print("\n--- Advanced Features ---")
-    adv = ["pygame", "pystray", "deepface", "face_recognition", "OpenGL", "pyautogui"]
-    for a in adv: print(check_module(a))
     
     # Hardware & Services
     print("\n--- Hardware & Services ---")
@@ -83,11 +83,11 @@ def run_checks():
     try:
         print(list_skills())
     except Exception as e:
-        print(f"{CROSS} Skills error: {e}")
+        print(f"{WARN} Skills info not available (loader may need full engines): {e}")
 
     # Directories
     print("\n--- Data Directories ---")
-    for folder in ["logs", "voice_notes", "screenshots", "captures", "security", "skills"]:
+    for folder in ["logs", "captures", "notes", "screenshots", "security"]:
         path = config.DATA_DIR / folder
         if path.exists():
             print(f"{TICK} {folder}/")

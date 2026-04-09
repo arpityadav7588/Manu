@@ -11,32 +11,24 @@ class MemoryManager:
         self._init_db()
 
     def _init_db(self):
-        """Create tables if they do not exist."""
+        """Create tables if they do not exist (Upgrade 3)."""
+        # Ensure directory exists
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
-            # Interactions table
+            # Interactions
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS interactions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     role TEXT,
                     message TEXT,
-                    tags TEXT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
-            # Voice notes table (Task 3a)
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS voice_notes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title TEXT,
-                    content TEXT,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            # Settings table
+            # Settings
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
@@ -44,77 +36,41 @@ class MemoryManager:
                 )
             ''')
             
-            # Sessions table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    ended_at DATETIME,
-                    summary TEXT
-                )
-            ''')
-            
-            # Reminders table
+            # Reminders
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS reminders (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     title TEXT,
-                    remind_at DATETIME,
+                    remind_at TEXT,
                     notified INTEGER DEFAULT 0
                 )
             ''')
             
-            # Security log table
+            # Security Log
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS security_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     event TEXT,
                     detail TEXT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-
-            # Habits table (Task 3a)
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS habits (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    pattern TEXT UNIQUE,
-                    frequency TEXT,
-                    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    count INTEGER DEFAULT 1
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
             conn.commit()
-            
-            # Check tables for confirmation print
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-            tables = [t[0] for t in cursor.fetchall()]
-            print(f"[*] Memory: SQLite database connected. {len(tables)} tables ready.")
+            print(f"[*] Memory: SQLite DB ready at {self.db_path}")
 
-    def log_interaction(self, user_text, manu_text):
-        """INSERT both user and manu messages into interactions table."""
+    def log_interaction(self, role, message):
+        """Insert into interactions (Upgrade 3)."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            # Log user message
             cursor.execute(
                 "INSERT INTO interactions (role, message) VALUES (?, ?)",
-                ("user", user_text)
-            )
-            # Log manu message
-            cursor.execute(
-                "INSERT INTO interactions (role, message) VALUES (?, ?)",
-                ("manu", manu_text)
-            )
-            # Maintain max entries
-            cursor.execute(
-                "DELETE FROM interactions WHERE id NOT IN (SELECT id FROM interactions ORDER BY id DESC LIMIT ?)",
-                (config.MAX_MEMORY_ENTRIES,)
+                (role, message)
             )
             conn.commit()
 
     def get_recent(self, limit=10):
-        """SELECT last n rows, return list of dicts"""
+        """Select last N interactions (Upgrade 3)."""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -126,7 +82,7 @@ class MemoryManager:
             return [dict(row) for row in reversed(rows)]
 
     def get_last_user_message(self):
-        """Return last user message string or None"""
+        """Return last user message or None (Upgrade 3)."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -135,36 +91,29 @@ class MemoryManager:
             row = cursor.fetchone()
             return row[0] if row else None
 
-    def search(self, keyword, limit=5):
-        """LIKE search, return list of dicts"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT role, message, timestamp FROM interactions WHERE message LIKE ? ORDER BY id DESC LIMIT ?",
-                (f"%{keyword}%", limit)
-            )
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+    def build_llm_context(self, limit=6):
+        """OpenAI-style message list (Upgrade 3)."""
+        recent = self.get_recent(limit)
+        context = []
+        for r in recent:
+            # Map 'manu' or 'assistant' to assistant role
+            role = "assistant" if r['role'] in ["manu", "assistant"] else "user"
+            context.append({"role": role, "content": r['message']})
+        return context
 
-    def summarize_yesterday(self):
-        """Return bullet string of yesterday's user messages"""
-        yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+    def set_setting(self, key, value):
+        """UPSERT into settings (Upgrade 3)."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
+            val_str = json.dumps(value) if not isinstance(value, str) else value
             cursor.execute(
-                "SELECT message FROM interactions WHERE role='user' AND timestamp LIKE ? ORDER BY timestamp ASC",
-                (f"{yesterday}%",)
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (key, val_str)
             )
-            rows = cursor.fetchall()
-            if not rows:
-                return "I don't recall any conversations from yesterday."
-            
-            summary = "\n".join([f"- {row[0]}" for row in rows])
-            return f"Yesterday, we talked about:\n{summary}"
+            conn.commit()
 
     def get_setting(self, key, default=None):
-        """SELECT from settings table, JSON-decode value"""
+        """Select from settings (Upgrade 3)."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT value FROM settings WHERE key=?", (key,))
@@ -173,50 +122,21 @@ class MemoryManager:
                 try:
                     return json.loads(row[0])
                 except:
-                    return row[0] # Fallback for non-JSON strings
+                    return row[0]
             return default
 
-    def set_setting(self, key, value):
-        """UPSERT into settings table"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            val_to_save = json.dumps(value) if not isinstance(value, str) else value
-            cursor.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                (key, val_to_save)
-            )
-            conn.commit()
-
-    def start_session(self):
-        """INSERT into sessions table, return session id"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO sessions (started_at) VALUES (CURRENT_TIMESTAMP)")
-            conn.commit()
-            return cursor.lastrowid
-
-    def end_session(self, session_id, summary):
-        """UPDATE sessions set ended_at, summary"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE sessions SET ended_at=CURRENT_TIMESTAMP, summary=? WHERE id=?",
-                (summary, session_id)
-            )
-            conn.commit()
-
-    def add_reminder(self, title, remind_at_iso):
-        """INSERT into reminders table"""
+    def add_reminder(self, title, remind_at_iso_str):
+        """Insert into reminders (Upgrade 3)."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO reminders (title, remind_at) VALUES (?, ?)",
-                (title, remind_at_iso)
+                (title, remind_at_iso_str)
             )
             conn.commit()
 
     def get_due_reminders(self):
-        """SELECT reminders where remind_at <= now and notified=0"""
+        """Select due reminders (Upgrade 3)."""
         now = datetime.datetime.now().isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -229,25 +149,14 @@ class MemoryManager:
             return [dict(row) for row in rows]
 
     def mark_reminder_done(self, reminder_id):
-        """UPDATE reminders set notified=1"""
+        """Set notified=1 (Upgrade 3)."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("UPDATE reminders SET notified=1 WHERE id=?", (reminder_id,))
             conn.commit()
 
-    def list_reminders(self):
-        """SELECT all pending reminders"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id, title, remind_at FROM reminders WHERE notified=0 ORDER BY remind_at ASC"
-            )
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
-
-    def log_security_event(self, event, detail):
-        """INSERT into security_log table"""
+    def log_security(self, event, detail):
+        """Insert into security_log (Upgrade 3)."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -256,32 +165,18 @@ class MemoryManager:
             )
             conn.commit()
 
-    def build_personality_context(self):
-        """Construct a personality brief for LLM injection."""
-        habits = self.get_top_habits(3)
-        habit_str = ", ".join([h['pattern'] for h in habits]) if habits else "None yet"
-        user_name = self.get_setting("user_name", config.USER_NAME)
-        
-        context = (
-            f"User Identity: {user_name}. "
-            f"Frequent User Habits/Topics: {habit_str}. "
-            "Your personality: Warm, professional, slightly witty."
-        )
-        return context
-
-    def summarize_last_session(self):
-        """Retrieve and return a brief summary of the last session."""
+    def summarize_yesterday(self):
+        """Bullet summary of yesterday's conversations (Upgrade 3)."""
+        yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT summary FROM sessions WHERE summary IS NOT NULL ORDER BY id DESC LIMIT 1")
-            row = cursor.fetchone()
-            return row[0] if row else "No previous sessions found."
-
-    def build_llm_context(self, limit=8):
-        """Return list of {role, content} dicts for LLM injection"""
-        interactions = self.get_recent(limit)
-        context = []
-        for interact in interactions:
-            role = "assistant" if interact['role'] == "manu" else interact['role']
-            context.append({"role": role, "content": interact['message']})
-        return context
+            cursor.execute(
+                "SELECT message FROM interactions WHERE role='user' AND timestamp LIKE ? ORDER BY timestamp ASC",
+                (f"{yesterday}%",)
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                return "I don't recall any conversations from yesterday."
+            
+            lines = [f"• {r[0]}" for r in rows]
+            return f"Yesterday we discussed:\n" + "\n".join(lines)

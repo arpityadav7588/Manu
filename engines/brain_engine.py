@@ -3,128 +3,95 @@ import json
 import datetime
 import config
 
-SYSTEM_PROMPT = """
-You are Manu, a warm, witty, and concise AI assistant. 
-You provide helpful responses in 2-4 sentences max. 
-Use humor appropriately when fitting. 
-Never start your responses with 'Certainly!' or 'Of course!'. 
-Always address the user as {user_name}. 
-Today's date is {date}.
-"""
-
 class BrainEngine:
     def __init__(self, memory):
         self.memory = memory
-        self.ollama_host = config.OLLAMA_HOST
-        self.current_model = config.LLM_MODEL
-        self.ollama_available = False
-        self._check_ollama()
+        self.host = config.OLLAMA_HOST
+        self.model = getattr(config, "LLM_MODEL", "llama3.2")
+        self.system_prompt = (
+            "You are Manu, a warm, witty local AI assistant. "
+            "Speak warmly and use mild humor appropriately. "
+            "Keep your answers between 2-4 sentences. "
+            "Your user's name is Arpit. Addressing him as Arpit is encouraged."
+        )
 
-    def switch_model(self, model_name):
-        """Update the active Ollama model (Task 7d)."""
-        self.current_model = model_name
-        return f"Model switched to {model_name}. I'm now using {model_name} for processing."
-
-    def _check_ollama(self):
-        """Check if Ollama is reachable."""
+    def is_ollama_available(self) -> bool:
+        """Check if Ollama server is reachable (Upgrade 2)."""
         try:
-            response = requests.get(f"{self.ollama_host}/api/tags", timeout=3)
-            self.ollama_available = (response.status_code == 200)
-            if self.ollama_available:
-                print("🧠 Brain Engine: Ollama is online.")
-        except Exception:
-            self.ollama_available = False
+            response = requests.get(f"{self.host}/api/tags", timeout=2)
+            return response.status_code == 200
+        except:
+            return False
 
     def chat(self, text, emotional_context=""):
-        """Query Ollama or fallback logic (Blocking)."""
-        if self.ollama_available:
-            return self._query_ollama(text, emotional_context)
-        else:
+        """Main chat entry point with memory injection (Upgrade 2)."""
+        if not self.is_ollama_available():
             return self._fallback_response(text)
 
-    def stream_chat(self, text, emotional_context=""):
-        """Generator for streaming Ollama responses (Task 7b)."""
-        if not self.ollama_available:
-            yield self._fallback_response(text)
-            return
-
-        payload = self._build_payload(text, emotional_context, stream=True)
-        try:
-            r = requests.post(f"{self.ollama_host}/api/chat", json=payload, stream=True, timeout=30)
-            for line in r.iter_lines():
-                if line:
-                    chunk = json.loads(line)
-                    if not chunk.get("done"):
-                        content = chunk.get("message", {}).get("content", "")
-                        yield content
-        except Exception as e:
-            yield f"Error: {e}"
-
-    def _build_payload(self, text, emotional_context="", stream=False):
-        """Construct the Ollama chat payload with dynamic context (Task 7a, 7c)."""
-        user_name = self.memory.get_setting("user_name", config.USER_NAME)
-        now = datetime.datetime.now()
-        date_str = now.strftime('%A %B %d, %Y at %H:%M')
+        # Build messages with history (last 6 entries)
+        history = self.memory.build_llm_context(limit=6)
         
-        # 1. Personality & Habit Injection
-        habit_summary = self.memory.get_top_habits(3)
-        habit_str = ", ".join([h['pattern'] for h in habit_summary]) if habit_summary else "No patterns yet."
+        messages = [{"role": "system", "content": self.system_prompt}]
+        if emotional_context:
+            messages.append({"role": "system", "content": f"Current mood/context: {emotional_context}"})
         
-        # 2. Dynamic System Prompt (Task 7a)
-        system_prompt = f"""
-        You are Manu, a warm, witty local AI assistant.
-        Current time: {date_str}
-        User's name: {user_name}
-        Current mood: {emotional_context}
-        User's frequent habits: {habit_str}
-
-        Personality rules:
-        - Be concise (2-3 sentences unless asked for detail)
-        - Use mild humor naturally, never forced
-        - Reference past conversations when relevant
-        - Vary response openers (never repeat the same opener twice in a row)
-        - If unsure, ask a clarifying question rather than guessing
-        """
-        
-        messages = [{"role": "system", "content": system_prompt}]
-        
-        # 3. Contextual Recall (Task 3b)
-        similars = self.memory.find_similar(text, limit=3)
-        if similars:
-            recall_text = " ".join([f"({m['timestamp']}) {m['role']}: {m['message']}" for m in similars])
-            messages.append({"role": "system", "content": f"Recent relevant context: {recall_text}"})
-
-        # 4. Rolling History (Task 7c)
-        full_history = self.memory.build_llm_context(limit=25)
-        if len(full_history) > 20:
-            # Simple summarization placeholder for very long history
-            summary_msg = {"role": "system", "content": "You have been talking to the user for a while now. Keep the momentum going."}
-            messages.append(summary_msg)
-            history = full_history[-8:] # Keep last 8 turns
-        else:
-            history = full_history[-8:] # Default 8-turn rolling window
-            
         messages.extend(history)
         messages.append({"role": "user", "content": text})
-        
-        return {
-            "model": self.current_model,
+
+        payload = {
+            "model": self.model,
             "messages": messages,
-            "stream": stream,
+            "stream": False,
             "options": {"temperature": 0.7}
         }
 
-    def _query_ollama(self, text, emotional_context=""):
-        payload = self._build_payload(text, emotional_context, stream=False)
         try:
-            r = requests.post(f"{self.ollama_host}/api/chat", json=payload, timeout=20)
+            r = requests.post(f"{self.host}/api/chat", json=payload, timeout=20)
             if r.status_code == 200:
                 return r.json().get("message", {}).get("content", "").strip()
-        except: pass
+        except Exception as e:
+            print(f"[X] Brain Error: {e}")
+        
         return self._fallback_response(text)
 
-    def _fallback_response(self, text):
-        return "I'm currently unable to connect to my brain (Ollama). Please make sure the service is running."
+    def summarize_session(self, interactions: list) -> str:
+        """Summarize a list of interactions (Upgrade 2)."""
+        if not interactions: return "No active interactions to summarize."
+        
+        text_to_sum = "\n".join([f"{i['role']}: {i['message']}" for i in interactions])
+        prompt = f"Summarize the following chat session concisely in 2 sentences:\n\n{text_to_sum}"
+        
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False
+        }
+        
+        try:
+            r = requests.post(f"{self.host}/api/chat", json=payload, timeout=15)
+            if r.status_code == 200:
+                return r.json().get("message", {}).get("content", "").strip()
+        except:
+            pass
+        return "Session complete. It was a productive talk!"
 
-    def is_available(self):
-        return self.ollama_available
+    def _fallback_response(self, text):
+        """Rule-based fallback when Ollama is unreachable (Upgrade 2)."""
+        text = text.lower()
+        fallbacks = {
+            "hello": "Hello Arpit! I'm running in restricted mode, but I'm here for you.",
+            "hi": "Hi there, Arpit! My brain is a bit offline, but I can still hear you.",
+            "time": f"The current time is {datetime.datetime.now().strftime('%H:%M')}.",
+            "joke": "Why did the computer show up late to work? It had a hard drive!",
+            "what can you do": "I can manage your schedule, take notes, and help with your system. Usually I'm smarter with Ollama!",
+            "who made you": "I was created by Arpit and refined by Antigravity.",
+            "thank you": "You're very welcome, Arpit!",
+            "bye": "Goodbye! I'll be here when you need me.",
+            "status": "Ollama is currently unreachable, so I'm using my local fallback logic."
+        }
+        
+        for key in fallbacks:
+            if key in text:
+                return fallbacks[key]
+        
+        return "I'm currently disconnected from my main brain (Ollama). I can still handle basic system commands though!"

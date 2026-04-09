@@ -4,6 +4,7 @@ import threading
 import time
 import logging
 import datetime
+import argparse
 from pathlib import Path
 
 # Manu Core Engines
@@ -16,158 +17,196 @@ from engines.command_engine import CommandEngine
 from modules.memory_manager import MemoryManager
 from modules.emotion_manager import EmotionManager
 from modules.security_manager import SecurityManager
-from modules.wake_word import WakeWordDetector
-from modules.face_emotion import FaceEmotionDetector
-from modules.skill_plugin import SkillLoader
+from modules.system_monitor import SystemMonitor
+from skills.skill_loader import load_skills
 
 # UI
 from ui.app_gui import ManuGUI
-from ui.hologram import HologramWindow
 import config
 
 class ManuAssistant:
-    def __init__(self):
-        print(f"[*] Initializing {config.MANU_NAME} Core...")
+    def __init__(self, no_security=False, no_gui=False):
+        self.no_security = no_security
+        self.no_gui = no_gui
+        self.running = True
+        self.is_listening = False
+        
+        # 1. Setup Logging (Upgrade 9)
+        self._setup_logging()
         self._bootstrap_folders()
         
-        # 1. Base Modules
+        # 2. Initialize Engines/Modules
         self.memory = MemoryManager()
         self.emotions = EmotionManager()
         self.speech = SpeechEngine()
-        
-        # 2. Engines
         self.brain = BrainEngine(self.memory)
         self.audio = AudioEngine()
-        self.skills = SkillLoader(self.speech, self.memory, self.brain)
-        self.command = CommandEngine(self.brain, self.speech, self.memory, self.skills)
         
-        # 3. Security
+        # Skills
+        self.skills = load_skills({'tts': self.speech, 'memory': self.memory, 'brain': self.brain})
+        self.commands = CommandEngine(self.brain, self.speech, self.memory, self.skills)
+        
+        # Security
         self.security = SecurityManager(self.speech, self.memory)
-        self.security.first_run_if_needed()
         
-        # 4. Background Modules
-        self.wake_detector = WakeWordDetector()
-        self.face_emotion = FaceEmotionDetector(self.speech, self.emotions)
+        # 3. Monitor
+        self.monitor = SystemMonitor(self.handle_system_event, self.memory)
         
-        # 5. UI & Hologram (Task 1, 6)
-        self.hologram = HologramWindow()
-        self.gui = ManuGUI(
-            on_command_submit=self.handle_command, 
-            on_login_submit=self.handle_login,
-            hologram=self.hologram
+        # 4. UI
+        if not self.no_gui:
+            self.gui = ManuGUI(
+                on_command_submit=self.handle_command,
+                on_login_submit=self.handle_login
+            )
+        else:
+            self.gui = None
+
+    def _setup_logging(self):
+        """Task 9: Logging to data/logs/manu_YYYYMMDD.log."""
+        config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        date_str = datetime.datetime.now().strftime("%Y%m%d")
+        log_file = config.LOGS_DIR / f"manu_{date_str}.log"
+        logging.basicConfig(
+            filename=str(log_file),
+            level=logging.INFO,
+            format='%(asctime)s | %(levelname)s | %(message)s'
         )
-        
+        logging.info("Manu Session Started.")
 
     def _bootstrap_folders(self):
-        """Ensure all required data directories exist."""
-        # 1. Ensure root data directory exists (Task 11)
-        config.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        
-        folders = [
-            "logs", "voice_notes", "screenshots", "captures", "security", "skills", "notes", "sounds"
-        ]
-        for f in folders:
-            path = config.DATA_DIR / f
+        """Task 9: Create required directories."""
+        for folder in ["logs", "captures", "notes", "screenshots", "security", "sounds"]:
+            path = config.DATA_DIR / folder
             path.mkdir(parents=True, exist_ok=True)
-            print(f"[*] Directory verified: {f}")
 
-    def _show_startup_summary(self):
-        """Show summary of last session on startup."""
-        summary = self.memory.summarize_last_session()
-        print(f"[*] Last Session Summary: {summary}")
+    def start(self):
+        """Main entry point (Upgrade 9)."""
+        if self.no_security or not self.security.is_locked:
+            self.is_unlocked = True
+            if self.gui: self.gui.show_main_ui()
+            self._launch_services()
+        else:
+            self.is_unlocked = False
+            self.security.first_run_if_needed()
+            if self.gui:
+                self.gui.show_lock_screen()
+            else:
+                print("[!] System Locked. Run with GUI for login or --no-security.")
+
+        if self.gui:
+            self.gui.mainloop()
+        else:
+            # Console only loop
+            while self.running:
+                cmd = input("Arpit > ")
+                self.handle_command(cmd)
+
+    def _launch_services(self):
+        """Startup background loops."""
+        self.monitor.start()
+        threading.Thread(target=self.wake_word_listener, daemon=True).start()
 
     def handle_login(self, password):
+        """Task 9: Successful login with history recall."""
         if self.security.verify_password(password):
-            threading.Thread(target=self._launch_sequence, daemon=True).start()
+            if self.gui: self.gui.show_main_ui()
+            
+            user_name = self.memory.get_setting("user_name", "Arpit")
+            last_msg = self.memory.get_last_user_message()
+            
+            greeting = f"Welcome back, {user_name}!"
+            if last_msg:
+                greeting += f" Last time we talked about: '{last_msg[:60]}...'"
+            
+            self._respond(greeting)
+            self._launch_services()
             return True
         return False
 
-    def _launch_sequence(self):
-        print("🔓 Unlock successful. Launching...")
-        self.hologram.show()
-        self.hologram.set_emotion("happy")
-        
-        name = self.memory.get_setting("user_name", "User")
-        msg = f"Welcome back, {name}! How can I help you today?"
-        
-        self.gui.update_chat("Manu", msg)
-        self.speech.speak(msg)
-        
-        # Start background loops (Task 9)
-        self.face_emotion.start()
-        self.wake_detector.start(callback=self.on_wake_word)
-        threading.Thread(target=self._battery_monitor_loop, daemon=True).start()
-
-    def on_wake_word(self):
-        if not self.is_listening and not self.gui.is_locked:
-            print("[*] Wake word detected!")
-            self.is_listening = True
-            self.hologram.set_emotion("listening")
-            self.speech.speak("Yes?")
-            
-            audio_text = self.audio.listen_for_command()
-            if audio_text:
-                self.gui.update_chat("You (Voice)", audio_text)
-                self.handle_command(audio_text)
-            
-            self.is_listening = False
-            self.hologram.set_emotion("neutral")
+    def wake_word_listener(self):
+        """Task 9: Listen for 'Manu' and trigger response."""
+        while self.running:
+            if self.audio.detect_wake_word():
+                self.speech.speak("Yes?") # Upgrade 9
+                if self.gui: self.gui.update_status("🔴 Listening...")
+                
+                text = self.audio.listen_for_command(timeout=8)
+                if text:
+                    self.handle_command(text)
+                else:
+                    self._respond("I'm sorry, I didn't catch that.")
+                
+                if self.gui: self.gui.update_status("🟢 System Ready")
+            time.sleep(0.1)
 
     def handle_command(self, text):
-        if self.gui.is_locked: return
+        """Task 9: Command routing with SLEEP_MODE check."""
+        if not text: return
+        logging.info(f"Command: {text}")
         
-        self.hologram.set_emotion("thinking")
-        
-        # 1. Command Engine (System/Skills)
+        # 1. Check Command Engine (regex/system/skills)
         response = self.commands.execute_command(text)
         
-        if response == "LOCKED":
-            self.lock_system()
+        if response == "SLEEP_MODE":
+            self.security.lock_session()
+            if self.gui: self.gui.show_lock_screen()
+            self._respond("Entering sleep mode. I'll keep your data safe.")
             return
 
-        # 2. Brain Engine (LLM)
+        if response == "TELL_JOKE":
+            response = self.emotions.react_to_joke_request()
+
+        # 2. Fallback to Brain Engine (LLM)
         if not response:
-            response = self.brain.chat(text, emotional_context=self.emotions.current_mood)
+            if self.gui: self.gui.update_status("🧠 Thinking...")
+            response = self.brain.chat(text, self.emotions.current_mood)
+            if self.gui: self.gui.update_status("🟢 System Ready")
+
+        self.memory.log_interaction("user", text)
+        self._respond(response)
+
+    def handle_system_event(self, event, detail):
+        """Task 9: Handle monitor events."""
+        logging.info(f"System Event: {event} | {detail}")
         
-        if response:
-            # Phase 1: Habits (Task 3)
-            self.memory.log_habit(text[:50])
-            
-            # Phase 1: Emotion Dynamics (Task 4)
-            prefix = self.emotions.get_prefix()
-            rate, vol = self.emotions.get_tts_params()
-            full_response = f"{prefix} {response}" if prefix else response
-            
-            self.gui.update_chat("Manu", full_response)
-            self.speech.speak(full_response, rate=rate, volume=vol)
-            self.memory.log_interaction(text, full_response)
-            
-        self.hologram.set_emotion(self.emotions.current_mood)
-        self.hologram.set_speaking(False)
+        if event == "reminder":
+            self._respond(f"Here is your reminder: {detail}")
+            return
 
-    def lock_system(self):
-        self.security.lock_session()
-        self.gui.show_lock_screen()
-        self.hologram.set_emotion("sleepy")
+        # Personality reaction via emotion manager
+        if event.startswith("battery"):
+            react = self.emotions.react_to_battery(detail, True, event == "charging")
+            if react: self._respond(react)
+        elif event.startswith("internet"):
+            react = self.emotions.react_to_internet(event == "internet_connected")
+            if react: self._respond(react)
+        elif event == "high_cpu":
+            self._respond(f"Notice: CPU usage is quite high at {detail}%. I might be a bit slower.")
 
-    def _battery_monitor_loop(self):
-        import psutil
-        while self.running:
-            batt = psutil.sensors_battery()
-            if batt:
-                self.gui.update_status(self.emotions.current_mood, batt.percent)
-                # Check for personality reaction
-                react = self.emotions.react_to_battery_event(batt.percent, batt.power_plugged)
-                if react:
-                    self.gui.update_chat("Manu", react)
-                    self.speech.speak(react)
-            time.sleep(60)
-
-    def run(self):
-        self.security.first_run_if_needed()
-        self.gui.show_lock_screen()
-        self.gui.mainloop()
+    def _respond(self, text):
+        """Internal helper for GUI + Speech + Logging."""
+        if not text: return
+        self.memory.log_interaction("assistant", text)
+        
+        # Emotion prefix & modulation (Upgrade 4/5 logic)
+        prefix = self.emotions.get_contextual_prefix()
+        rate, volume = self.emotions.get_tts_params()
+        
+        wrapped_text = f"{prefix} {text}" if prefix else text
+        
+        if self.gui:
+            self.gui.add_message("Manu", wrapped_text)
+            self.gui.update_emotion(self.emotions.get_mood_emoji())
+        else:
+            print(f"Manu > {wrapped_text}")
+            
+        self.speech.speak(wrapped_text, rate=rate, volume=volume)
 
 if __name__ == "__main__":
-    assistant = ManuAssistant()
-    assistant.run()
+    parser = argparse.ArgumentParser(description="Manu AI Assistant Upgrade V1.0")
+    parser.add_argument("--no-security", action="store_true", help="Skip login/password check")
+    parser.add_argument("--no-gui", action="store_true", help="Run in console-only mode")
+    args = parser.parse_args()
+    
+    app = ManuAssistant(no_security=args.no_security, no_gui=args.no_gui)
+    app.start()
