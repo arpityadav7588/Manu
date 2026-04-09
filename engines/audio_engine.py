@@ -1,97 +1,71 @@
 import speech_recognition as sr
-import numpy as np
-import soundfile as sf
 import io
-import threading
-import config
-
-try:
-    from faster_whisper import WhisperModel
-    HAS_FASTER_WHISPER = True
-except ImportError:
-    HAS_FASTER_WHISPER = False
+import soundfile as sf
+import numpy as np
 
 class AudioEngine:
     def __init__(self, model="base"):
-        self.recognizer = sr.Recognizer()
-        self.recognizer.energy_threshold = config.ENERGY_THRESHOLD
-        self.recognizer.dynamic_energy_threshold = True # Upgrade 1
-        self.model_name = model
-        self.whisper_model = None
-        
-        if HAS_FASTER_WHISPER and config.STT_ENGINE == "whisper":
-            try:
-                # Use CPU for local compliance
-                self.whisper_model = WhisperModel(model, device="cpu", compute_type="int8")
-            except Exception as e:
-                print(f"Error loading FasterWhisper: {e}")
+        try:
+            self.recognizer = sr.Recognizer()
+            self.recognizer.energy_threshold = 300
+            self.recognizer.dynamic_energy_threshold = True
+            self.recognizer.pause_threshold = 0.8
+            self.whisper_model = None
+            self.whisper_available = False
+            self._load_whisper(model)
+        except Exception as e:
+            print(f"Error init AudioEngine: {e}")
 
-    def listen_and_recognize(self, timeout=None, phrase_limit=None):
-        """Open mic, capture audio, and transcribe (Upgrade 1)."""
+    def _load_whisper(self, model_size):
+        try:
+            from faster_whisper import WhisperModel
+            self.whisper_model = WhisperModel(model_size, device="cpu", compute_type="int8")
+            self.whisper_available = True
+            print(f"✅ Whisper {model_size} loaded")
+        except ImportError:
+            self.whisper_available = False
+            print("⚠ faster_whisper not available, using Google recognition fallback.")
+        except Exception as e:
+            self.whisper_available = False
+            print(f"⚠ Whisper failed to load: {e}")
+
+    def listen_and_recognize(self, timeout=8, phrase_limit=12) -> str:
         try:
             with sr.Microphone() as source:
-                print("🎤 Listening...")
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.3)
                 audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
                 
-                if config.STT_ENGINE == "whisper":
-                    return self._transcribe_whisper(audio)
-                else:
-                    return self._transcribe_google(audio)
-        except Exception as e:
-            print(f"Audio capture error: {e}")
-            return ""
-
-    def listen_for_command(self, timeout=8):
-        """Separate method for command capture with longer phrase limit (Upgrade 1)."""
-        return self.listen_and_recognize(timeout=timeout, phrase_limit=10)
-
-    def _transcribe_whisper(self, audio):
-        """Transcribe using Faster-Whisper."""
-        try:
-            wav_data = io.BytesIO(audio.get_wav_data())
-            audio_array, sample_rate = sf.read(wav_data)
-            audio_array = audio_array.astype(np.float32)
-
-            if self.whisper_model:
-                segments, info = self.whisper_model.transcribe(audio_array, beam_size=5)
-                text = " ".join([segment.text for segment in segments]).strip()
-                return text
+            if self.whisper_available:
+                return self._whisper_transcribe(audio)
             else:
-                return self._transcribe_google(audio)
-        except Exception as e:
-            print(f"Whisper transcription error: {e}")
-            return self._transcribe_google(audio)
-
-    def _transcribe_google(self, audio):
-        """Google Web Speech API fallback."""
-        try:
-            return self.recognizer.recognize_google(audio).strip()
+                return self.recognizer.recognize_google(audio).strip().lower()
+        except sr.WaitTimeoutError:
+            return ""
         except sr.UnknownValueError:
             return ""
-        except sr.RequestError as e:
-            print(f"Google STT Error: {e}")
+        except Exception as e:
+            print(f"Listen error: {e}")
             return ""
 
-    def calibrate(self):
-        """Adjust for ambient noise."""
+    def _whisper_transcribe(self, audio) -> str:
         try:
-            with sr.Microphone() as source:
-                print("🤫 Calibrating for ambient noise...")
-                self.recognizer.adjust_for_ambient_noise(source, duration=1.5)
-        except Exception as e:
-            print(f"Calibration error: {e}")
-
-    def detect_wake_word(self):
-        """Listen in short bursts for wake words (Upgrade 1)."""
-        try:
-            with sr.Microphone() as source:
-                # Use 3-second phrase_time_limit as requested
-                audio = self.recognizer.listen(source, timeout=4, phrase_time_limit=3)
-                text = self._transcribe_whisper(audio).lower()
+            wav_data = audio.get_wav_data(convert_rate=16000, convert_width=2)
+            wav_io = io.BytesIO(wav_data)
+            data, samplerate = sf.read(wav_io, dtype="float32")
+            if len(data.shape) > 1:
+                data = data.mean(axis=1) # to mono
                 
-                for word in config.WAKE_WORDS:
-                    if word in text:
-                        return True
-                return False
-        except Exception:
-            return False
+            segments, _ = self.whisper_model.transcribe(data, language="en", beam_size=3, vad_filter=True)
+            text = " ".join([segment.text for segment in segments])
+            return text.strip().lower()
+        except Exception as e:
+            print(f"Whisper transcribe error: {e}")
+            return ""
+
+    def calibrate(self, duration=1.5):
+        try:
+            with sr.Microphone() as source:
+                self.recognizer.adjust_for_ambient_noise(source, duration=duration)
+                print(f"Energy threshold calibrated to: {self.recognizer.energy_threshold}")
+        except Exception as e:
+            print(f"Calibrate error: {e}")

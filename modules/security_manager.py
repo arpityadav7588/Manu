@@ -1,99 +1,73 @@
 import hashlib
-import time
-import os
-import datetime
 from pathlib import Path
-import config
-
-try:
-    import cv2
-    HAS_CV2 = True
-except ImportError:
-    HAS_CV2 = False
+import time
 
 class SecurityManager:
-    def __init__(self, tts, memory):
-        self.tts = tts
-        self.memory = memory
-        self._is_locked = True
-        self.auth_attempts = 0
-        self.max_attempts = 3
-        self.auth_file = config.DATA_DIR / "auth.hash"
+    def __init__(self):
+        try:
+            Path("./data").mkdir(parents=True, exist_ok=True)
+            self._hash_file = Path("./data/.manu_auth")
+            self._stored_hash = self._load_hash()
+            self._attempts = 0
+            self.max_attempts = 3
+        except Exception as e:
+            pass
 
-    @property
-    def is_locked(self):
-        return self._is_locked
+    def _load_hash(self) -> str | None:
+        try:
+            if self._hash_file.exists():
+                return self._hash_file.read_text().strip()
+            return None
+        except Exception as e:
+            return None
 
-    def first_run_if_needed(self):
-        """Task 7: Setup if no password hash exists."""
-        if not self.auth_file.exists():
-            print("\n--- Manu First-Run Setup ---")
-            pwd = input("Set your security password: ")
-            if pwd:
-                pwd_hash = self.hash_password(pwd)
-                with open(self.auth_file, "w") as f:
-                    f.write(pwd_hash)
-                print("[*] Security: Password set. Encrypting brain...")
-                self.tts.speak("Security set. I'm ready for duty.")
-
-    def verify_password(self, password):
-        """Task 7: Hash and compare; handle lockout."""
-        if not self.auth_file.exists():
-            return True # No password yet, bypass
-            
-        with open(self.auth_file, "r") as f:
-            stored_hash = f.read().strip()
-            
-        if self.hash_password(password) == stored_hash:
-            self._is_locked = False
-            self.auth_attempts = 0
-            self.unlock_session()
-            return True
-        else:
-            self.auth_attempts += 1
-            self.memory.log_security("FAILED_ATTEMPT", f"Attempt {self.auth_attempts}")
-            
-            if self.auth_attempts >= self.max_attempts:
-                self.lock_session()
-                self.capture_webcam("LOCKOUT")
-                print(f"⚠️ Security: Max attempts reached. Lockout active.")
-            
+    def has_password(self) -> bool:
+        try:
+            return self._stored_hash is not None
+        except Exception as e:
             return False
 
-    def capture_webcam(self, reason="security"):
-        """Task 7: Capture frames on failure."""
-        if not HAS_CV2:
-            print("[!] Security: OpenCV missing. Cannot capture intruder photo.")
-            return
-
+    def set_password(self, password: str):
         try:
-            cap = cv2.VideoCapture(0)
-            if not cap.isOpened():
-                print("[!] Security: Could not access webcam.")
-                return
-            
-            ret, frame = cap.read()
-            cap.release()
-            
-            if ret:
-                ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = config.DATA_DIR / "captures" / f"intruder_{ts}.jpg"
-                filename.parent.mkdir(parents=True, exist_ok=True)
-                cv2.imwrite(str(filename), frame)
-                self.memory.log_security(reason, f"Photo saved to {filename.name}")
+            hashed = hashlib.sha256(password.encode()).hexdigest()
+            self._hash_file.write_text(hashed)
+            self._stored_hash = hashed
         except Exception as e:
-            print(f"Security: Webcam capture error: {e}")
+            pass
+
+    def verify_password(self, password: str) -> bool:
+        try:
+            entered = hashlib.sha256(password.encode()).hexdigest()
+            if entered == self._stored_hash:
+                self._attempts = 0
+                return True
+            else:
+                self._attempts += 1
+                if self._attempts >= self.max_attempts:
+                    self.capture_intruder()
+                return False
+        except Exception as e:
+            return False
+
+    def capture_intruder(self):
+        try:
+            import cv2
+            cap = cv2.VideoCapture(0)
+            time.sleep(0.5)
+            ret, frame = cap.read()
+            if ret:
+                Path("./data/captures").mkdir(parents=True, exist_ok=True)
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                cv2.imwrite(f"./data/captures/{timestamp}.jpg", frame)
+            cap.release()
+        except ImportError:
+            print("OpenCV not installed, skipping webcam capture")
+        except Exception as e:
+            print(f"Capture error: {e}")
 
     def lock_session(self):
-        """Task 7: State management."""
-        self._is_locked = True
-        self.memory.log_security("SESSION_LOCKED", "Manual or Lockout")
-
-    def unlock_session(self):
-        """Task 7: State management."""
-        self._is_locked = False
-        self.memory.log_security("SESSION_UNLOCKED", "Valid auth")
-
-    @staticmethod
-    def hash_password(pwd):
-        return hashlib.sha256(pwd.encode()).hexdigest()
+        try:
+            self._attempts = 0
+            print("🔒 Session locked.")
+        except Exception as e:
+            pass

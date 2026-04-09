@@ -1,182 +1,103 @@
 import sqlite3
 import json
-import datetime
-import os
+from datetime import datetime, timedelta
 from pathlib import Path
-import config
 
 class MemoryManager:
     def __init__(self):
-        self.db_path = config.DB_PATH
-        self._init_db()
+        try:
+            Path("./data").mkdir(parents=True, exist_ok=True)
+            self.db_path = "./data/manu.db"
+            self._init_db()
+        except Exception as e:
+            print(f"Memory init error: {e}")
 
     def _init_db(self):
-        """Create tables if they do not exist (Upgrade 3)."""
-        # Ensure directory exists
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            
-            # Interactions
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS interactions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    role TEXT,
-                    message TEXT,
-                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            # Settings
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS settings (
-                    key TEXT PRIMARY KEY,
-                    value TEXT
-                )
-            ''')
-            
-            # Reminders
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS reminders (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title TEXT,
-                    remind_at TEXT,
-                    notified INTEGER DEFAULT 0
-                )
-            ''')
-            
-            # Security Log
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS security_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    event TEXT,
-                    detail TEXT,
-                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            conn.commit()
-            print(f"[*] Memory: SQLite DB ready at {self.db_path}")
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("CREATE TABLE IF NOT EXISTS interactions(id INTEGER PRIMARY KEY, role TEXT, message TEXT, timestamp TEXT)")
+                conn.execute("CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT)")
+                conn.execute("CREATE TABLE IF NOT EXISTS reminders(id INTEGER PRIMARY KEY, title TEXT, remind_at TEXT, notified INTEGER DEFAULT 0)")
+        except Exception as e:
+            print(f"DB init error: {e}")
 
-    def log_interaction(self, role, message):
-        """Insert into interactions (Upgrade 3)."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO interactions (role, message) VALUES (?, ?)",
-                (role, message)
-            )
-            conn.commit()
+    def log_interaction(self, user_text: str, manu_response: str):
+        try:
+            now = datetime.now().isoformat()
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("INSERT INTO interactions (role, message, timestamp) VALUES (?, ?, ?)", ("user", user_text, now))
+                conn.execute("INSERT INTO interactions (role, message, timestamp) VALUES (?, ?, ?)", ("manu", manu_response, now))
+        except Exception as e:
+            pass
 
-    def get_recent(self, limit=10):
-        """Select last N interactions (Upgrade 3)."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT role, message, timestamp FROM interactions ORDER BY id DESC LIMIT ?",
-                (limit,)
-            )
-            rows = cursor.fetchall()
-            return [dict(row) for row in reversed(rows)]
+    def get_recent(self, limit=8) -> list[dict]:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("SELECT role, message FROM interactions ORDER BY id DESC LIMIT ?", (limit,))
+                results = [{"role": row[0], "message": row[1]} for row in cursor.fetchall()]
+                return results[::-1]
+        except Exception as e:
+            return []
 
-    def get_last_user_message(self):
-        """Return last user message or None (Upgrade 3)."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT message FROM interactions WHERE role='user' ORDER BY id DESC LIMIT 1"
-            )
-            row = cursor.fetchone()
-            return row[0] if row else None
+    def get_last_user_message(self) -> str | None:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("SELECT message FROM interactions WHERE role='user' ORDER BY id DESC LIMIT 1")
+                row = cursor.fetchone()
+                return row[0] if row else None
+        except Exception as e:
+            return None
 
-    def build_llm_context(self, limit=6):
-        """OpenAI-style message list (Upgrade 3)."""
-        recent = self.get_recent(limit)
-        context = []
-        for r in recent:
-            # Map 'manu' or 'assistant' to assistant role
-            role = "assistant" if r['role'] in ["manu", "assistant"] else "user"
-            context.append({"role": role, "content": r['message']})
-        return context
-
-    def set_setting(self, key, value):
-        """UPSERT into settings (Upgrade 3)."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            val_str = json.dumps(value) if not isinstance(value, str) else value
-            cursor.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                (key, val_str)
-            )
-            conn.commit()
+    def summarize_yesterday(self) -> str:
+        try:
+            yesterday = (datetime.now() - timedelta(days=1)).date().isoformat()
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("SELECT message FROM interactions WHERE role='user' AND date(timestamp) = ?", (yesterday,))
+                messages = [row[0] for row in cursor.fetchall()]
+                if not messages:
+                    return "No activity found from yesterday."
+                return "- " + "\n- ".join(messages)
+        except Exception as e:
+            return "No activity found from yesterday."
 
     def get_setting(self, key, default=None):
-        """Select from settings (Upgrade 3)."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT value FROM settings WHERE key=?", (key,))
-            row = cursor.fetchone()
-            if row:
-                try:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("SELECT value FROM settings WHERE key=?", (key,))
+                row = cursor.fetchone()
+                if row:
                     return json.loads(row[0])
-                except:
-                    return row[0]
+                return default
+        except Exception as e:
             return default
 
-    def add_reminder(self, title, remind_at_iso_str):
-        """Insert into reminders (Upgrade 3)."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO reminders (title, remind_at) VALUES (?, ?)",
-                (title, remind_at_iso_str)
-            )
-            conn.commit()
+    def set_setting(self, key, value):
+        try:
+            val_str = json.dumps(value)
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, val_str))
+        except Exception as e:
+            pass
 
-    def get_due_reminders(self):
-        """Select due reminders (Upgrade 3)."""
-        now = datetime.datetime.now().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id, title, remind_at FROM reminders WHERE remind_at <= ? AND notified=0",
-                (now,)
-            )
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+    def add_reminder(self, title: str, remind_at: str):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("INSERT INTO reminders (title, remind_at) VALUES (?, ?)", (title, remind_at))
+        except Exception as e:
+            pass
 
-    def mark_reminder_done(self, reminder_id):
-        """Set notified=1 (Upgrade 3)."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE reminders SET notified=1 WHERE id=?", (reminder_id,))
-            conn.commit()
+    def get_due_reminders(self) -> list[dict]:
+        try:
+            now = datetime.now().isoformat()
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("SELECT id, title, remind_at FROM reminders WHERE notified=0 AND remind_at <= ?", (now,))
+                return [{"id": row[0], "title": row[1], "remind_at": row[2]} for row in cursor.fetchall()]
+        except Exception as e:
+            return []
 
-    def log_security(self, event, detail):
-        """Insert into security_log (Upgrade 3)."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO security_log (event, detail) VALUES (?, ?)",
-                (event, detail)
-            )
-            conn.commit()
-
-    def summarize_yesterday(self):
-        """Bullet summary of yesterday's conversations (Upgrade 3)."""
-        yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT message FROM interactions WHERE role='user' AND timestamp LIKE ? ORDER BY timestamp ASC",
-                (f"{yesterday}%",)
-            )
-            rows = cursor.fetchall()
-            if not rows:
-                return "I don't recall any conversations from yesterday."
-            
-            lines = [f"• {r[0]}" for r in rows]
-            return f"Yesterday we discussed:\n" + "\n".join(lines)
+    def mark_notified(self, reminder_id: int):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("UPDATE reminders SET notified=1 WHERE id=?", (reminder_id,))
+        except Exception as e:
+            pass

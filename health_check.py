@@ -1,100 +1,90 @@
 import sys
-import importlib.util
-import requests
-import pyaudio
-import cv2
-from PIL import Image
-import config
 
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-RED = "\033[91m"
-RESET = "\033[0m"
+def run_health_check():
+    checks_passed = 0
+    total_checks = 6
 
-TICK = f"{GREEN}[V]{RESET}"
-WARN = f"{YELLOW}[!]{RESET}"
-CROSS = f"{RED}[X]{RESET}"
-
-def check_module(name):
-    """Check if a module is installed."""
-    if importlib.util.find_spec(name.lower().replace("-", "_")) is not None:
-        return f"{TICK} {name}"
-    else:
-        return f"{CROSS} {name} (Missing)"
-
-def check_ollama():
-    """Check if Ollama server is reachable."""
+    # 1. Python version
     try:
-        resp = requests.get(f"{config.OLLAMA_HOST}/api/tags", timeout=2)
-        if resp.status_code == 200:
-            return f"{TICK} Ollama Server: Online ({config.LLM_MODEL})"
-    except:
-        pass
-    return f"{CROSS} Ollama Server: Offline"
-
-def check_mic():
-    """Check if a microphone is accessible."""
-    try:
-        p = pyaudio.PyAudio()
-        info = p.get_default_input_device_info()
-        count = p.get_device_count()
-        p.terminate()
-        return f"{TICK} Microphone: {info['name']} ({count} devices found)"
-    except Exception as e:
-        return f"{CROSS} Microphone: Not accessible ({e})"
-
-def check_camera():
-    """Check if a webcam is accessible."""
-    try:
-        cap = cv2.VideoCapture(0)
-        if cap.isOpened():
-            ret, frame = cap.read()
-            cap.release()
-            if ret: return f"{TICK} Webcam: Online"
-    except:
-        pass
-    return f"{CROSS} Webcam: Not accessible"
-
-def list_skills():
-    """List loaded skills from the skills/ directory."""
-    from skills.skill_loader import load_skills
-    # Mock engines for loader
-    skills = load_skills({})
-    if skills:
-        return f"{TICK} Skills Loaded: {', '.join(skills.keys())}"
-    return f"{WARN} Skills: None found in skills/"
-
-def run_checks():
-    print(f"\n{YELLOW}=== {config.MANU_NAME} SYSTEM HEALTH CHECK ==={RESET}\n")
-    
-    # Core Dependencies
-    print("--- Core Dependencies ---")
-    deps = ["speech_recognition", "pyaudio", "faster_whisper", "pyttsx3", "requests", "psutil", "pyperclip", "opencv-python", "pillow"]
-    for d in deps: print(check_module(d))
-    
-    # Hardware & Services
-    print("\n--- Hardware & Services ---")
-    print(check_mic())
-    print(check_camera())
-    print(check_ollama())
-    
-    # Skills
-    print("\n--- Skill Registry ---")
-    try:
-        print(list_skills())
-    except Exception as e:
-        print(f"{WARN} Skills info not available (loader may need full engines): {e}")
-
-    # Directories
-    print("\n--- Data Directories ---")
-    for folder in ["logs", "captures", "notes", "screenshots", "security"]:
-        path = config.DATA_DIR / folder
-        if path.exists():
-            print(f"{TICK} {folder}/")
+        ver = sys.version_info
+        if ver.major >= 3 and ver.minor >= 10:
+            print("✅ Python version >= 3.10")
+            checks_passed += 1
         else:
-            print(f"{CROSS} {folder}/ (Missing)")
+            print("❌ Python version < 3.10")
+    except Exception as e:
+        print(f"❌ Python version check failed: {e}")
 
-    print(f"\n{YELLOW}Ready to launch? Run 'python main.py'{RESET}\n")
+    # 2. Imports
+    modules_to_check = [
+        "pyttsx3", "speech_recognition", "faster_whisper", "soundfile",
+        "psutil", "requests", "sqlite3", "tkinter", "cv2", "pyperclip"
+    ]
+    missing = []
+    print("Checking imports...")
+    for mod in modules_to_check:
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(mod)
+            print(f"❌ {mod} MISSING")
+    
+    if not missing:
+        print("✅ All imports successful")
+        checks_passed += 1
+    else:
+        print("⚠ Some imports missing.")
+
+    # 3. Ollama connectivity & 4. Gemma4 model
+    try:
+        import requests
+        res = requests.get("http://localhost:11434/api/tags", timeout=3)
+        if res.status_code == 200:
+            print("✅ Ollama running")
+            checks_passed += 1
+            data = res.json()
+            models = [m.get("name", "") for m in data.get("models", [])]
+            if any("gemma4" in m for m in models):
+                print("✅ Gemma4 model found")
+                checks_passed += 1
+            else:
+                print("⚠ Ollama running but gemma4 not found — run: ollama pull gemma4")
+        else:
+            print("❌ Ollama check failed: Not 200 OK")
+    except ImportError:
+        print("❌ Cannot check Ollama: requests missing")
+    except Exception as e:
+        print("❌ Ollama connectivity failed")
+
+    # 5. Microphone
+    try:
+        import speech_recognition as sr
+        with sr.Microphone() as source:
+            pass
+        print("✅ Microphone works")
+        checks_passed += 1
+    except ImportError:
+        print("❌ Cannot check microphone: speech_recognition missing")
+    except Exception as e:
+        print(f"❌ Microphone check failed: {e}")
+
+    # 6. Data dir
+    try:
+        from pathlib import Path
+        import os
+        d = Path("./data")
+        d.mkdir(parents=True, exist_ok=True)
+        test_file = d / ".test_write"
+        test_file.write_text("ok")
+        test_file.unlink()
+        print("✅ ./data/ directory writable")
+        checks_passed += 1
+    except Exception as e:
+        print(f"❌ ./data/ directory check failed: {e}")
+
+    print(f"\n{checks_passed}/{total_checks} checks passed")
+    if checks_passed == total_checks:
+        print("🚀 Manu is ready to launch! Run: python main.py")
 
 if __name__ == "__main__":
-    run_checks()
+    run_health_check()
