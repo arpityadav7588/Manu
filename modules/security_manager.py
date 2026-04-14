@@ -1,73 +1,89 @@
+"""
+modules/security_manager.py
+Manu's authentication and session security.
+SHA-256 password hashing. Webcam capture on failed auth.
+"""
+
 import hashlib
+import logging
+import os
+from datetime import datetime
 from pathlib import Path
-import time
+
+log = logging.getLogger("Manu.Security")
+
+# If no password is configured, Manu runs in open mode (no-auth).
+# To set a password: python -c "import hashlib; print(hashlib.sha256(b'yourpass').hexdigest())"
+# Then paste the hash below or store it via MemoryManager settings.
+STORED_HASH = ""   # Empty = no-auth mode
+
 
 class SecurityManager:
+
     def __init__(self):
-        try:
-            Path("./data").mkdir(parents=True, exist_ok=True)
-            self._hash_file = Path("./data/.manu_auth")
-            self._stored_hash = self._load_hash()
-            self._attempts = 0
-            self.max_attempts = 3
-        except Exception as e:
-            pass
+        self._stored_hash = STORED_HASH
+        self._session_locked = False
+        log.info(
+            "SecurityManager ready. "
+            f"Mode: {'password-protected' if self._stored_hash else 'open (no password set)'}"
+        )
 
-    def _load_hash(self) -> str | None:
-        try:
-            if self._hash_file.exists():
-                return self._hash_file.read_text().strip()
-            return None
-        except Exception as e:
-            return None
+    def verify_password(self, entered: str) -> bool:
+        """Verify entered password against stored SHA-256 hash."""
+        if not self._stored_hash:
+            # No password configured — always allow
+            return True
+        entered_hash = hashlib.sha256(entered.encode("utf-8")).hexdigest()
+        match = entered_hash == self._stored_hash
+        if not match:
+            log.warning("Failed authentication attempt.")
+            self.capture_webcam("failed_auth")
+        return match
 
-    def has_password(self) -> bool:
-        try:
-            return self._stored_hash is not None
-        except Exception as e:
-            return False
+    def get_stored_hash(self) -> str:
+        return self._stored_hash
 
-    def set_password(self, password: str):
-        try:
-            hashed = hashlib.sha256(password.encode()).hexdigest()
-            self._hash_file.write_text(hashed)
-            self._stored_hash = hashed
-        except Exception as e:
-            pass
+    def set_password(self, new_password: str):
+        """Hash and store a new password."""
+        self._stored_hash = hashlib.sha256(
+            new_password.encode("utf-8")
+        ).hexdigest()
+        log.info("Password updated.")
 
-    def verify_password(self, password: str) -> bool:
-        try:
-            entered = hashlib.sha256(password.encode()).hexdigest()
-            if entered == self._stored_hash:
-                self._attempts = 0
-                return True
-            else:
-                self._attempts += 1
-                if self._attempts >= self.max_attempts:
-                    self.capture_intruder()
-                return False
-        except Exception as e:
-            return False
+    def lock_session(self):
+        """Mark session as locked."""
+        self._session_locked = True
+        log.info("Session locked.")
 
-    def capture_intruder(self):
+    def unlock_session(self):
+        self._session_locked = False
+
+    @property
+    def is_locked(self) -> bool:
+        return self._session_locked
+
+    def capture_webcam(self, reason: str = "security"):
+        """Capture webcam snapshot on suspicious event."""
         try:
             import cv2
             cap = cv2.VideoCapture(0)
-            time.sleep(0.5)
-            ret, frame = cap.read()
-            if ret:
-                Path("./data/captures").mkdir(parents=True, exist_ok=True)
-                timestamp = time.strftime("%Y%m%d_%H%M%S")
-                cv2.imwrite(f"./data/captures/{timestamp}.jpg", frame)
-            cap.release()
-        except ImportError:
-            print("OpenCV not installed, skipping webcam capture")
-        except Exception as e:
-            print(f"Capture error: {e}")
+            if not cap.isOpened():
+                log.warning("Webcam not accessible.")
+                return
 
-    def lock_session(self):
-        try:
-            self._attempts = 0
-            print("🔒 Session locked.")
+            import time
+            time.sleep(0.4)   # Let camera warm up
+            ret, frame = cap.read()
+            cap.release()
+
+            if ret:
+                captures_dir = Path("data") / "captures"
+                captures_dir.mkdir(parents=True, exist_ok=True)
+                ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = captures_dir / f"{reason}_{ts}.jpg"
+                cv2.imwrite(str(filename), frame)
+                log.info(f"Security capture saved: {filename.name}")
+        except ImportError:
+            log.debug("opencv not installed — webcam capture skipped.")
         except Exception as e:
-            pass
+            log.error(f"Webcam capture failed: {e}")

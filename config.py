@@ -34,7 +34,7 @@ TTS_VOICE_ID = None
 
 # LLM (Large Language Model)
 LLM_ENGINE = "ollama"
-LLM_MODEL = "llama3:8b"
+LLM_MODEL = "gemma4:e4b"
 OLLAMA_HOST = "http://localhost:11434"
 LLM_TEMPERATURE = 0.7
 LLM_MAX_TOKENS = 300
@@ -113,3 +113,19 @@ WAKEWORD_CONFIDENCE = 0.6
 CLIPBOARD_MONITOR_INTERVAL = 2.0
 
 AUTO_LOAD_SKILLS = True
+
+# ─── Porcupine Wake Word (get free key at console.picovoice.ai) ───
+PORCUPINE_KEY = ""   # Paste your free API key here
+
+# ─── Siri Mode Settings ───────────────────────────────────────────
+SIRI_MODE      = True    # True = invisible background mode (default)
+BEEP_ON_WAKE   = True    # Play beep when wake word detected
+
+# ─── STT Settings (Updated for Siri-Mode) ─────────────────────────
+# STT_LISTEN_TIMEOUT and STT_PHRASE_LIMIT were already set, ensuring visibility
+STT_LISTEN_TIMEOUT  = 8
+STT_PHRASE_LIMIT    = 15
+
+# ─── TTS Settings (Updated for Siri-Mode) ─────────────────────────
+TTS_RATE   = 175
+TTS_VOLUME = 0.92

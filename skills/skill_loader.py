@@ -21,10 +21,9 @@ def load_skills(engines_dict):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         
-        # Find classes starting with Skill_
         for name, obj in inspect.getmembers(module, inspect.isclass):
             if name.startswith("Skill_"):
-                instance = obj(tts=tts, memory=memory, llm=llm)
+                instance = obj(tts, memory, llm)
                 loaded_skills[name.lower()] = instance
                 print(f"[*] Skill Loaded: {name}")
                 

@@ -1,11 +1,21 @@
+# Core — must have
+pyttsx3>=2.90
 SpeechRecognition>=3.10.0
-pyaudio>=0.2.13
+pyaudio>=0.2.14
+psutil>=5.9.0
+requests>=2.31.0
+
+# Offline STT (strongly recommended — install these for offline mode)
 faster-whisper>=1.0.0
 soundfile>=0.12.1
-pyttsx3>=2.90
-requests>=2.31.0
-psutil>=5.9.0
-pyperclip>=1.8.2
-ollama>=0.1.8
-opencv-python>=4.8.0
+
+# GUI
+customtkinter>=5.2.0
 pillow>=10.0.0
+
+# Optional (install for extra features)
+opencv-python>=4.8.0      # webcam security capture
+pyperclip>=1.8.2          # clipboard read/write
+screen-brightness-control>=0.16.0  # brightness control
+pycaw>=20181227           # Windows precision volume (pip install pycaw)
+comtypes>=1.2.0           # required by pycaw on Windows

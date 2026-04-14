@@ -90,8 +90,24 @@ class ManuGUI:
             send_btn = tk.Button(input_frame, text="Send ➤", bg=ACCENT, fg="white", relief=tk.FLAT, command=self._on_send)
             send_btn.pack(side=tk.RIGHT, padx=(10, 0))
             
+            # Initially hide main UI components if locked (not strictly enforced by Tkinter packing but good for state)
+            
         except Exception as e:
             print(f"Build UI error: {e}")
+
+    def show_main_ui(self):
+        """Task 9: Transition to main app layout."""
+        # Already built in __init__, but we can use this to lift things or clear state
+        self.is_locked = False
+        self.add_system_message("System Online.")
+
+    def add_message(self, sender, text):
+        """Main.py expected method."""
+        self.update_chat(sender, text)
+
+    def update_emotion(self, emoji):
+        """Main.py expected method."""
+        self.update_status(mood_emoji=emoji)
 
     def _trigger_cmd(self, text):
         try:
@@ -155,8 +171,14 @@ class ManuGUI:
         except:
             pass
 
-    def update_status(self, mood_emoji: str = None, battery: int = None, text: str = None):
+    def update_status(self, text_or_emoji: str = None, mood_emoji: str = None, battery: int = None, text: str = None):
         try:
+            # Handle main.py calling with single string: update_status("Thinking...")
+            if text_or_emoji and not mood_emoji and not battery and not text:
+                text = text_or_emoji
+            elif mood_emoji is None and text_or_emoji:
+                mood_emoji = text_or_emoji
+                
             with self._lock:
                 self._update_queue.append(("status", mood_emoji, battery, text))
         except:

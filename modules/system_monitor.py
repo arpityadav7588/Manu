@@ -1,94 +1,117 @@
+"""
+modules/system_monitor.py
+Background daemon: monitors battery and internet,
+fires callback(event, detail) on state changes.
+"""
+
+import logging
+import socket
 import threading
 import time
+
 import psutil
-import socket
+
+log = logging.getLogger("Manu.Monitor")
+
+POLL_INTERVAL  = 30   # seconds between checks
+LOW_BATTERY    = 20   # % threshold for battery_low event
+FULL_BATTERY   = 95   # % threshold for battery_full event
+
 
 class SystemMonitor:
+
     def __init__(self, callback):
-        try:
-            self.callback = callback
-            self._thread = None
-            self._running = False
-            self._last_battery_pct = None
-            self._last_plugged = None
-            self._last_internet = None
-            self._high_cpu_warned = False
-        except Exception as e:
-            print(f"Monitor init error: {e}")
+        """
+        callback(event: str, detail: int) is called on state changes.
+        Events: battery_low, charging, battery_full,
+                internet_lost, internet_restored
+        detail: battery percentage (for battery events) or 0
+        """
+        self._callback = callback
+        self._thread   = None
+
+        # Previous state tracking (only fire on changes)
+        self._prev_plugged   = None
+        self._prev_pct       = None
+        self._prev_internet  = None
+        self._low_alerted    = False
+        self._full_alerted   = False
 
     def start(self):
-        try:
-            self._running = True
-            self._thread = threading.Thread(target=self._loop, daemon=True)
-            self._thread.start()
-        except Exception as e:
-            pass
-
-    def stop(self):
-        self._running = False
+        """Start the background monitoring daemon thread."""
+        self._thread = threading.Thread(
+            target=self._loop,
+            name="ManuMonitor",
+            daemon=True,
+        )
+        self._thread.start()
+        log.info("System monitor started (battery + internet).")
 
     def _loop(self):
-        try:
-            time.sleep(6)
-            while self._running:
+        time.sleep(5)   # Give Manu time to finish greeting before first check
+        while True:
+            try:
                 self._check_battery()
                 self._check_internet()
-                self._check_cpu()
-                
-                for _ in range(45):
-                    if not self._running:
-                        break
-                    time.sleep(1)
-        except Exception as e:
-            print(f"Monitor loop error: {e}")
+            except Exception as e:
+                log.error(f"Monitor loop error: {e}")
+            time.sleep(POLL_INTERVAL)
 
     def _check_battery(self):
         try:
-            battery = psutil.sensors_battery()
-            if battery is None:
-                return
-                
-            pct = battery.percent
-            plugged = battery.power_plugged
-            
-            if self._last_plugged is not None:
-                if plugged and not self._last_plugged:
-                    self.callback("charging", int(pct))
-                elif not plugged and self._last_plugged:
-                    self.callback("unplugged", int(pct))
-                elif pct <= 20 and not plugged and (self._last_battery_pct is None or self._last_battery_pct > 20):
-                    self.callback("battery_low", int(pct))
-                elif pct >= 95 and plugged and (self._last_battery_pct is None or self._last_battery_pct < 95):
-                    self.callback("battery_full", int(pct))
-                    
-            self._last_battery_pct = pct
-            self._last_plugged = plugged
+            bat = psutil.sensors_battery()
+            if bat is None:
+                return   # Desktop — no battery
+
+            pct     = bat.percent
+            plugged = bat.power_plugged
+
+            # Just plugged in (was unplugged → now plugged)
+            if plugged and self._prev_plugged is False:
+                self._low_alerted  = False
+                self._full_alerted = False
+                self._callback("charging", int(pct))
+
+            # Just unplugged
+            elif not plugged and self._prev_plugged is True:
+                self._callback("unplugged", int(pct))
+
+            # Battery low (and not already alerted)
+            elif not plugged and pct <= LOW_BATTERY and not self._low_alerted:
+                self._low_alerted = True
+                self._callback("battery_low", int(pct))
+
+            # Battery full (and plugged in, not already alerted)
+            elif plugged and pct >= FULL_BATTERY and not self._full_alerted:
+                self._full_alerted = True
+                self._callback("battery_full", int(pct))
+
+            # Reset low alert when battery recovers
+            if pct > LOW_BATTERY + 10:
+                self._low_alerted = False
+
+            self._prev_plugged = plugged
+            self._prev_pct     = pct
+
         except Exception as e:
-            pass
+            log.debug(f"Battery check error: {e}")
 
     def _check_internet(self):
-        try:
-            connected = False
-            try:
-                socket.create_connection(("8.8.8.8", 53), timeout=2)
-                connected = True
-            except:
-                connected = False
-                
-            if self._last_internet is not None and connected != self._last_internet:
-                self.callback("internet_on" if connected else "internet_off", connected)
-                
-            self._last_internet = connected
-        except Exception as e:
-            pass
+        connected = self._ping()
+        if connected != self._prev_internet:
+            if self._prev_internet is not None:
+                event = "internet_restored" if connected else "internet_lost"
+                self._callback(event, 0)
+                log.info(f"Internet: {event}")
+            self._prev_internet = connected
 
-    def _check_cpu(self):
+    def _ping(self) -> bool:
+        """Fast connectivity check — DNS socket to Google."""
         try:
-            cpu = psutil.cpu_percent(interval=0.5)
-            if cpu > 88 and not self._high_cpu_warned:
-                self.callback("high_cpu", int(cpu))
-                self._high_cpu_warned = True
-            if cpu < 70:
-                self._high_cpu_warned = False
-        except Exception as e:
-            pass
+            socket.setdefaulttimeout(2.0)
+            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(
+                ("8.8.8.8", 53)
+            )
+            return True
+        except (socket.error, OSError):
+            return False

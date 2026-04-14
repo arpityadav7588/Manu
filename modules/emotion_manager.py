@@ -1,63 +1,84 @@
-import time
+"""
+modules/emotion_manager.py
+Manu's emotional state — maps system events to mood,
+voice modulation parameters, and JARVIS-style prefixes.
+"""
+
+import logging
 import random
 
-class EmotionManager:
-    def __init__(self):
-        try:
-            self.current_mood = "neutral"
-            self._mood_time = time.time()
-            
-            self.MOOD_MAP = {
-                "battery_low":  "concerned",
-                "charging":     "grateful",
-                "battery_full": "excited",
-                "internet_on":  "happy",
-                "internet_off": "concerned",
-                "high_cpu":     "concerned",
-                "error":        "error",
-            }
-            
-            self.EMOJIS = {
-                "happy":"😊", "excited":"🤩", "concerned":"😟", 
-                "grateful":"🙏", "playful":"😜", "neutral":"🙂",
-                "thinking":"🤔", "listening":"👂", "sleepy":"😴", "error":"😵"
-            }
-            
-            self.PREFIXES = {
-                "excited":   ["Oh wow! ", "This is exciting! "],
-                "concerned":  ["Hmm... ", "I'm a little worried, but — "],
-                "grateful":   ["Aww, thanks! ", "That's really kind. "],
-                "happy":      ["Great! ", "Love it! "],
-                "playful":    ["Ooh! ", "Ha! "],
-                "neutral":    ["", "Sure. ", "Got it. "],
-            }
-        except Exception as e:
-            pass
+log = logging.getLogger("Manu.Emotion")
 
-    def update_mood_on_event(self, event: str, battery_level: int = 100):
-        try:
-            if event in self.MOOD_MAP:
-                self.current_mood = self.MOOD_MAP[event]
-                self._mood_time = time.time()
-        except Exception as e:
-            pass
+MOOD_CONFIG = {
+    "enthusiastic": {
+        "emoji": "🤩", "rate": 195, "volume": 0.95,
+        "prefix": ["Excellent. ", "Outstanding. ", "Perfect. "],
+    },
+    "happy": {
+        "emoji": "😊", "rate": 185, "volume": 0.92,
+        "prefix": ["", "", "Right. "],
+    },
+    "neutral": {
+        "emoji": "🙂", "rate": 175, "volume": 0.90,
+        "prefix": ["", "", ""],
+    },
+    "playful": {
+        "emoji": "😜", "rate": 190, "volume": 0.93,
+        "prefix": ["Interesting. ", "", "Well then. "],
+    },
+    "grateful": {
+        "emoji": "🙏", "rate": 168, "volume": 0.88,
+        "prefix": ["Appreciated. ", "Thank you for that. ", ""],
+    },
+    "concerned": {
+        "emoji": "😟", "rate": 158, "volume": 0.82,
+        "prefix": ["I should mention... ", "A note of concern: ", ""],
+    },
+    "sleepy": {
+        "emoji": "😴", "rate": 142, "volume": 0.75,
+        "prefix": ["", ""],
+    },
+}
+
+
+class EmotionManager:
+
+    def __init__(self):
+        self.current_mood = "neutral"
+        log.info("EmotionManager ready. Default mood: neutral")
+
+    def update_mood_on_event(self, event: str, battery_pct: int = 100):
+        """Map a system event to an appropriate mood."""
+        event_mood_map = {
+            "battery_low":        "concerned",
+            "charging":           "grateful",
+            "battery_full":       "playful",
+            "internet_lost":      "concerned",
+            "internet_restored":  "happy",
+            "morning":            "enthusiastic",
+            "evening":            "neutral",
+            "error":              "concerned",
+            "success":            "happy",
+            "lock":               "sleepy",
+        }
+        new_mood = event_mood_map.get(event, "neutral")
+        self.current_mood = new_mood
+        log.debug(f"Mood → {new_mood} (event: {event})")
+        return new_mood
+
+    def set_mood(self, mood: str):
+        if mood in MOOD_CONFIG:
+            self.current_mood = mood
 
     def get_mood_emoji(self) -> str:
-        try:
-            return self.EMOJIS.get(self.current_mood, "🙂")
-        except Exception as e:
-            return "🙂"
+        return MOOD_CONFIG.get(self.current_mood, MOOD_CONFIG["neutral"])["emoji"]
 
     def get_contextual_prefix(self) -> str:
-        try:
-            prefixes = self.PREFIXES.get(self.current_mood, [""])
-            return random.choice(prefixes)
-        except Exception as e:
-            return ""
+        prefixes = MOOD_CONFIG.get(
+            self.current_mood, MOOD_CONFIG["neutral"]
+        )["prefix"]
+        return random.choice(prefixes)
 
-    def auto_reset(self):
-        try:
-            if time.time() - self._mood_time > 300:
-                self.current_mood = "neutral"
-        except Exception as e:
-            pass
+    def get_tts_params(self) -> dict:
+        cfg = MOOD_CONFIG.get(self.current_mood, MOOD_CONFIG["neutral"])
+        return {"rate": cfg["rate"], "volume": cfg["volume"]}
