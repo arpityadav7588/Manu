@@ -70,7 +70,7 @@ class CommandEngine:
       3. Return "LOCKED" → triggers session lock in main.py
     """
 
-    def execute_command(self, text: str) -> str | None:
+    def execute(self, text: str, context: dict = None) -> str | None:
         """
         Main entry point. Receives transcribed voice input as text.
         Returns response string, None (LLM fallback), or "LOCKED".

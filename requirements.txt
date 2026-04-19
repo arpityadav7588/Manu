@@ -19,3 +19,8 @@ pyperclip>=1.8.2          # clipboard read/write
 screen-brightness-control>=0.16.0  # brightness control
 pycaw>=20181227           # Windows precision volume (pip install pycaw)
 comtypes>=1.2.0           # required by pycaw on Windows
+
+# Phase 2 — Siri mode
+pystray>=0.19.4
+Pillow>=10.0.0
+pygame>=2.5.0

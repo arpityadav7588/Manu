@@ -14,7 +14,7 @@ import requests
 log = logging.getLogger("Manu.Brain")
 
 OLLAMA_HOST  = "http://localhost:11434"
-OLLAMA_MODEL = "llama3.2"   # Change to "mistral" or "phi3" if preferred
+OLLAMA_MODEL = "gemma4:e4b"   # High-efficiency 4B model released 2026
 
 JARVIS_SYSTEM_PROMPT = """You are Manu, a sophisticated AI assistant running
 locally on the user's personal laptop. You were built by your user with Python.

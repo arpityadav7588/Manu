@@ -1,215 +1,211 @@
 """
 main.py — Manu AI Assistant
 Siri-style: invisible, always-on, fully offline.
-
-Run modes:
-  python main.py               → Silent background mode (Siri-style) ✓
-  python main.py --gui         → Show full GUI window
-  python main.py --console     → Console-only (no tray, no GUI)
-  python main.py --no-security → Skip password (development)
-  python main.py --setup       → Re-run first-time setup wizard
 """
 
+import argparse
 import sys
 import logging
-import argparse
 import threading
 import time
 from pathlib import Path
 
-# ── Logging ───────────────────────────────────────────────────────────────────
-LOG_DIR = Path("data/logs")
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+# ── Phase 2 Imports ───────────────────────────────────────────────────────────
+import logging
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)-18s] %(levelname)s  %(message)s",
     datefmt="%H:%M:%S",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(LOG_DIR / "manu.log", encoding="utf-8"),
-    ],
 )
+
+# ── Core Engine Imports ───────────────────────────────────────────────────────
+from engines.brain_engine import BrainEngine
+from engines.speech_engine import SpeechEngine
+from engines.audio_engine import AudioEngine
+from engines.command_engine import CommandEngine
+from modules.memory_manager import MemoryManager
+from modules.security_manager import SecurityManager
+from modules.emotion_manager import EmotionManager
+from ui.app_gui import ManuGUI
+from modules.system_monitor import SystemMonitor
+
 log = logging.getLogger("Manu")
 
-sys.path.insert(0, str(Path(__file__).parent))
 
-# ── Args ──────────────────────────────────────────────────────────────────────
-parser = argparse.ArgumentParser(description="Manu — Local AI Assistant")
-parser.add_argument("--gui",         action="store_true", help="Show full GUI window")
-parser.add_argument("--console",     action="store_true", help="Console mode (no tray)")
-parser.add_argument("--no-security", action="store_true", help="Skip auth (dev mode)")
-parser.add_argument("--setup",       action="store_true", help="Re-run first-time setup")
-parser.add_argument("--model",       type=str, default=None, help="Override LLM model")
-args, _ = parser.parse_known_args()
+class ManuAssistant:
+    """
+    Main controller for the Manu AI Assistant.
+    Coordinates speech, hearing, brain (LLM), and system monitoring.
+    """
 
-import config
+    def __init__(self):
+        log.info("Initializing Manu Assistant...")
+        
+        # ── Engines ───────────────────────────────────────────────────────────
+        self.brain    = BrainEngine()
+        self.speech   = SpeechEngine()
+        self.audio    = AudioEngine(model="base")
+        self.commands = CommandEngine()
+        
+        # ── Managers ──────────────────────────────────────────────────────────
+        self.memory   = MemoryManager()
+        self.security = SecurityManager()
+        self.emotions = EmotionManager()
+        
+        # ── UI & Monitoring ───────────────────────────────────────────────────
+        self.gui      = ManuGUI(
+            on_command_submit=self.handle_command,
+            on_login_submit=self.handle_login
+        )
+        self.monitor  = SystemMonitor(self.handle_system_event)
+        self.monitor.start()
+        
+        self.is_listening = False
+        log.info("Manu initialization complete.")
 
-if args.no_security:
-    config.SECURITY_ENABLED = False
-if args.model:
-    config.LLM_MODEL = args.model
+    def handle_login(self, password):
+        """Handle auth from GUI."""
+        success = self.security.verify_password(password)
+        if success:
+            log.info("Access granted.")
+            threading.Thread(target=self.wake_word_listener, daemon=True).start()
+            return True
+        log.warning("Access denied.")
+        return False
 
-# ── Imports ───────────────────────────────────────────────────────────────────
-# Using modular paths (as expected by Siri-mode)
-from modules.memory.store            import MemoryStore
-from engines.tts_engine              import TTSEngine
-from engines.stt_engine              import STTEngine
-from modules.commands.dispatcher     import CommandDispatcher
-from modules.emotional.state_manager import EmotionalStateManager
-from engines.llm_engine              import LLMEngine
-from modules.security.auth           import AuthManager
-from modules.events.monitor          import EventMonitor
+    def handle_system_event(self, event, detail):
+        """Callback for SystemMonitor."""
+        log.info(f"System Event: {event} ({detail})")
+        # Route to emotions or voice alerts as needed
+        self.emotions.process_event(event, detail)
 
+    def handle_command(self, text):
+        """Main command processor."""
+        if not text:
+            return
+            
+        log.info(f"Processing command: {text}")
+        response = self.commands.execute(text, context={"brain": self.brain})
+        
+        if response:
+            self.speech.speak(response)
+            return response
 
-def main():
-    log.info("=" * 55)
-    log.info("  MANU — Local AI Assistant (Siri Mode)")
-    log.info("=" * 55)
+    def wake_word_listener(self):
+        """
+        Background thread: listen for wake word using Whisper-tiny.
+        Called after successful login in handle_login().
+        This is the GUI-mode wake word loop.
+        For full Siri mode (no GUI), use --siri flag.
+        """
+        from engines.wake_word_engine import WakeWordEngine
+        from engines.beep_engine import BeepEngine
 
-    # ── Ensure data dirs (Bootstrapping Legacy Folders) ───────────────────
-    for d in ["data/logs", "data/captures", "data/notes", "data/screenshots", 
-             "data/security", "data/sounds", "assets"]:
-        Path(d).mkdir(parents=True, exist_ok=True)
+        beep   = BeepEngine()
+        engine = WakeWordEngine(on_detected=self._on_wake_detected)
+        engine.start()
 
-    # ── Init core modules ────────────────────────────────────────────────
-    memory     = MemoryStore(config.DB_PATH)
-    tts        = TTSEngine()
-    stt        = STTEngine()
-    emotional  = EmotionalStateManager(tts)
-    llm        = LLMEngine(memory)
-    auth       = AuthManager(tts, memory)
-    dispatcher = CommandDispatcher(tts=tts, memory=memory,
-                                   llm=llm, emotional=emotional)
-    monitor    = EventMonitor(emotional, tts, memory)
-
-    # ── Security ─────────────────────────────────────────────────────────
-    if config.SECURITY_ENABLED or args.setup:
-        authenticated = auth.authenticate()
-        if not authenticated:
-            tts.speak("Access denied. Shutting down.")
-            sys.exit(1)
-    
-    # ── Session start ─────────────────────────────────────────────────────
-    session_id = memory.start_session()
-
-    # ── Background monitor ────────────────────────────────────────────────
-    monitor.start()
-
-    # ── Calibrate mic silently ────────────────────────────────────────────
-    stt.calibrate_microphone(duration=1.0)
-
-    # ── Startup voice greeting (no window) ────────────────────────────────
-    name = memory.get_setting("user_name", "Friend")
-    tts.speak(
-        f"Hey {name}, Manu is active and listening. "
-        f"Just say Hey Manu anytime you need me."
-    )
-
-    # ── Choose run mode ───────────────────────────────────────────────────
-    if args.gui:
-        # Full GUI mode (original behavior)
-        try:
-            from ui.app_gui import ManuGUI
-            gui = ManuGUI(
-                on_command_submit=dispatcher.process,
-                on_login_submit=auth.verify_password
-            )
-            emotional.gui = gui
-            # dispatcher.gui = gui # If needed
-            gui.run()
-        except ImportError as e:
-            log.error(f"GUI unavailable: {e}")
-            _siri_mode(tts, stt, dispatcher, memory, emotional, session_id)
-        except Exception as e:
-            log.error(f"GUI error: {e}")
-            _siri_mode(tts, stt, dispatcher, memory, emotional, session_id)
-
-    elif args.console:
-        # Console mode — print + speak, no tray
-        _console_loop(tts, stt, dispatcher, memory, emotional, session_id)
-
-    else:
-        # DEFAULT: Siri mode — invisible background with tray icon
-        _siri_mode(tts, stt, dispatcher, memory, emotional, session_id)
-
-
-def _siri_mode(tts, stt, dispatcher, memory, emotional, session_id):
-    """Run Manu invisibly with system tray icon and always-on wake word."""
-    from engines.siri_mode import SiriMode
-
-    siri = SiriMode(
-        tts_engine=tts,
-        stt_engine=stt,
-        dispatcher=dispatcher,
-        memory=memory,
-        emotional=emotional,
-    )
-    siri.start()
-
-    # Keep main thread alive (tray runs in daemon thread)
-    log.info("Manu running silently. Check system tray. Press Ctrl+C to quit.")
-    try:
+        # Keep thread alive — engine runs in its own daemon thread
         while True:
             time.sleep(1)
-    except KeyboardInterrupt:
-        log.info("Keyboard interrupt — shutting down.")
-        memory.end_session(session_id)
-        tts.speak("Shutting down. Goodbye!")
-        siri.stop()
 
+    def _on_wake_detected(self):
+        """Called by WakeWordEngine when wake word heard in GUI mode."""
+        from engines.beep_engine import BeepEngine
+        try:
+            if self.gui.is_locked:
+                return
+        except AttributeError:
+            # If GUI hasn't fully loaded or handles locking differently
+            pass
 
-def _console_loop(tts, stt, dispatcher, memory, emotional, session_id):
-    """Simple console loop — type or speak commands."""
-    from engines.wake_word_engine import WakeWordEngine
+        BeepEngine().play_activate()
+        self.gui.update_chat("System", "Listening...")
 
-    print("\n" + "=" * 50)
-    print("  Manu Console Mode - Type or speak 'Hey Manu'")
-    print("  Type your command and press Enter, or speak.")
-    print("  Type 'quit' to exit.")
-    print("=" * 50 + "\n")
+        text = self.audio.listen_and_recognize(timeout=8, phrase_limit=15)
+        if text:
+            self.gui.update_chat("You", text)
+            self.handle_command(text)
 
-    def _on_wake(wake_tts=tts, wake_stt=stt, wake_dispatcher=dispatcher):
-        tts.speak("Yes?")
-        cmd = stt.listen(timeout=8, phrase_limit=15)
-        if cmd:
-            print(f"\nYou: {cmd}")
-            memory.log_interaction("user", cmd)
-            resp = dispatcher.process(cmd)
-            if resp:
-                tts.speak(resp)
-                memory.log_interaction("assistant", resp)
-                print(f"Manu: {resp}\n")
+        BeepEngine().play_deactivate()
 
-    wake_engine = WakeWordEngine(on_detected_callback=_on_wake)
-    wake_engine.start()
-
-    try:
-        while True:
-            try:
-                user_input = input("You (type): ").strip()
-            except EOFError:
-                break
-
-            if not user_input:
-                continue
-            if user_input.lower() in ("quit", "exit", "bye"):
-                break
-
-            memory.log_interaction("user", user_input)
-            resp = dispatcher.process(user_input)
-            if resp:
-                tts.speak(resp)
-                memory.log_interaction("assistant", resp)
-                print(f"Manu: {resp}\n")
-
-    except KeyboardInterrupt:
-        pass
-    finally:
-        wake_engine.stop()
-        memory.end_session(session_id)
-        tts.speak("Goodbye!")
+    def run(self):
+        """Normal GUI launch mode."""
+        self.gui.show_lock_screen()
+        self.gui.run()  # mainloop
 
 
 if __name__ == "__main__":
-    main()
+    import argparse, sys
+
+    parser = argparse.ArgumentParser(description="Manu AI Assistant")
+    parser.add_argument(
+        "--siri",
+        action="store_true",
+        help="Run invisibly in background (Siri mode, no GUI window)",
+    )
+    parser.add_argument(
+        "--console",
+        action="store_true",
+        help="Console-only mode (text input, no GUI, no tray)",
+    )
+    parser.add_argument(
+        "--no-security",
+        action="store_true",
+        help="Skip password login (development mode)",
+    )
+    args, _ = parser.parse_known_args()
+
+    assistant = ManuAssistant()
+
+    if args.siri:
+        # ── SIRI MODE: invisible + always listening ──────────────────
+        from engines.siri_mode import SiriMode
+        siri = SiriMode(assistant)
+        siri.start()
+        siri.run_forever()      # Blocks main thread forever
+
+    elif args.console:
+        # ── CONSOLE MODE: type commands in terminal ──────────────────
+        from engines.wake_word_engine import WakeWordEngine
+        from engines.beep_engine      import BeepEngine
+
+        print("\n" + "=" * 50)
+        print("  Manu — Console Mode")
+        print("  Type a command and press Enter.")
+        print("  Or just say 'Hey Manu' (wake word active).")
+        print("  Type 'quit' to exit.")
+        print("=" * 50 + "\n")
+
+        assistant.audio.calibrate(duration=1.0)
+        beep = BeepEngine()
+
+        def _on_wake():
+            beep.play_activate()
+            print("\n[Wake word detected — speak your command]\n")
+            cmd = assistant.audio.listen_and_recognize(timeout=8)
+            if cmd:
+                print(f"You: {cmd}")
+                assistant.handle_command(cmd)
+            beep.play_deactivate()
+
+        wwe = WakeWordEngine(on_detected=_on_wake)
+        wwe.start()
+
+        while True:
+            try:
+                user_input = input("You: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\nGoodbye.")
+                break
+            if not user_input:
+                continue
+            if user_input.lower() in ("quit", "exit", "bye"):
+                assistant.speech.speak("Goodbye.")
+                break
+            assistant.handle_command(user_input)
+
+    else:
+        # ── NORMAL GUI MODE: original behavior unchanged ─────────────
+        assistant.run()

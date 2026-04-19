@@ -46,5 +46,20 @@ class LLMChat(BrainEngine):
         return super().is_available
 
     def summarize_session(self, interactions=None):
-        """Stub — session summarization requires extended LLM call."""
-        return ""
+        """
+        Produce a short, personality-driven summary of recent interactions.
+        Uses Ollama for context-aware summarization if available.
+        """
+        if not self.is_available:
+            return "Systems were nominal. No significant events to report."
+        
+        text = "Summarize our recent interaction in 1 sentence using your JARVIS personality."
+        # Use memory if no interactions provided
+        context = ""
+        if not interactions and self.memory:
+            context = self.memory.build_llm_context(10)
+        
+        try:
+            return self.chat(text, context)
+        except Exception:
+            return "A productive session, sir. Ready for the next task."
