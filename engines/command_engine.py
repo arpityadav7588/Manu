@@ -204,6 +204,44 @@ class CommandEngine:
         if bright_match:
             return self._handle_brightness(int(bright_match.group(1)))
 
+        # ── Screen reading ────────────────────────────────────────────────
+        screen_read_patterns = [
+            "what's on my screen", "what is on my screen",
+            "read my screen", "describe my screen",
+            "what do you see", "look at my screen",
+            "what's open", "what am i looking at",
+        ]
+        if any(k in t for k in screen_read_patterns):
+            return "SCREEN_READ"
+
+        screen_question_match = re.search(
+            r"(?:what|who|how|where|when|why|is|are|does|can|could)\s+.+"
+            r"(?:on my screen|on screen|you see|visible)",
+            t
+        )
+        if screen_question_match:
+            return f"SCREEN_READ:{text}"
+
+        # ── Check emotion / mood ──────────────────────────────────────────
+        if any(k in t for k in ["how do i look", "check my face",
+                                  "read my emotion", "how am i looking",
+                                  "check my mood", "analyze my face"]):
+            return "FACE_CHECK"
+
+        # ── Vision capabilities ───────────────────────────────────────────
+        if any(k in t for k in ["vision capabilities", "can you see me",
+                                  "do you have eyes", "are you watching"]):
+            return "VISION_STATUS"
+
+        # ── TTS voice switch ──────────────────────────────────────────────
+        if any(k in t for k in ["switch to neural voice", "use jarvis voice",
+                                  "enable neural tts", "change voice"]):
+            return "SWITCH_VOICE"
+
+        if any(k in t for k in ["switch to offline voice", "use offline tts",
+                                  "disable neural voice"]):
+            return "SWITCH_VOICE_OFFLINE"
+
         # No command matched — fall through to LLM
         return None
 

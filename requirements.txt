@@ -24,3 +24,14 @@ comtypes>=1.2.0           # required by pycaw on Windows
 pystray>=0.19.4
 Pillow>=10.0.0
 pygame>=2.5.0
+
+# Phase 4 — Neural voice + vision
+edge-tts>=6.1.9
+pygame>=2.5.0
+deepface>=0.0.79
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# Optional for Phase 4
+# pytesseract>=0.3.10   # OCR fallback for screen reading
+# pydub>=0.25.1          # MP3→WAV conversion for winsound fallback

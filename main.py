@@ -9,6 +9,7 @@ import logging
 import threading
 import time
 from pathlib import Path
+from engines.vision_engine import VisionEngine
 
 # ── Phase 2 Imports ───────────────────────────────────────────────────────────
 import logging
@@ -52,6 +53,7 @@ class ManuAssistant:
         self.memory   = MemoryManager()
         self.security = SecurityManager()
         self.emotions = EmotionManager()
+        self.vision = VisionEngine(self.speech, self.emotions, self.memory)
         
         # ── UI & Monitoring ───────────────────────────────────────────────────
         self.gui      = ManuGUI(
@@ -60,6 +62,7 @@ class ManuAssistant:
         )
         self.monitor  = SystemMonitor(self.handle_system_event)
         self.monitor.start()
+        self.vision.start()
         
         self.is_listening = False
         log.info("Manu initialization complete.")
@@ -91,6 +94,53 @@ class ManuAssistant:
         if response:
             self.speech.speak(response)
             return response
+
+        if isinstance(response, str) and response.startswith("SCREEN_READ"):
+            # Extract optional question from command code
+            parts    = response.split(":", 1)
+            question = parts[1] if len(parts) > 1 else "What is on this screen?"
+            response = self.vision.read_screen(question)
+
+        elif response == "FACE_CHECK":
+            emotion, conf = "unknown", 0.0
+            try:
+                frame = self.vision._capture_frame()
+                if frame is not None:
+                    emotion, conf = self.vision._analyze_emotion(frame)
+                    mood_comment  = self.emotions.get_vision_response(emotion)
+                    response = (
+                        f"I detect {emotion} emotion with "
+                        f"{int(conf*100)}% confidence. "
+                        f"{mood_comment or ''}"
+                    ).strip()
+                else:
+                    response = "I couldn't access the camera right now."
+            except Exception as e:
+                response = f"Face check failed: {e}"
+
+        elif response == "VISION_STATUS":
+            caps     = self.vision.capabilities
+            parts    = []
+            if caps["emotion_detection"]:
+                parts.append("emotion detection via webcam is active")
+            else:
+                parts.append("emotion detection is offline (install deepface + opencv)")
+            if caps["screen_reading"]:
+                parts.append("screen reading via LLaVA is available")
+            else:
+                parts.append("screen reading needs: ollama pull llava")
+            response = "My vision capabilities: " + "; ".join(parts) + "."
+
+        elif response == "SWITCH_VOICE":
+            self.speech._edge_available = True
+            response = (
+                f"Switching to neural voice: {self.speech.backend_name}. "
+                "This requires an internet connection."
+            )
+
+        elif response == "SWITCH_VOICE_OFFLINE":
+            self.speech._edge_available = False
+            response = "Switched to offline pyttsx3 voice."
 
     def wake_word_listener(self):
         """
