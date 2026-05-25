@@ -29,13 +29,13 @@ class AudioEngine:
     WAKE_WORDS = ["hey manu", "hey star", "manu", "hey man"]
 
     def __init__(self, model: str = "base"):
-        self._model_size  = model
-        self._whisper     = None       # Main command model
-        self._wake_whisper = None      # Tiny model for wake word (faster)
-        self._recognizer  = sr.Recognizer()
-        self._recognizer.energy_threshold         = 300
+        self._model_size = model
+        self._whisper = None  # Main command model
+        self._wake_whisper = None  # Tiny model for wake word (faster)
+        self._recognizer = sr.Recognizer()
+        self._recognizer.energy_threshold = 300
         self._recognizer.dynamic_energy_threshold = True
-        self._recognizer.pause_threshold          = 0.8
+        self._recognizer.pause_threshold = 0.8
         self._google_fallback = False
 
         self._load_whisper()
@@ -203,7 +203,7 @@ class AudioEngine:
 
             # Convert AudioData → numpy float32 at 16kHz (Whisper requirement)
             wav_bytes = audio.get_wav_data(convert_rate=16000, convert_width=2)
-            wav_io    = io.BytesIO(wav_bytes)
+            wav_io = io.BytesIO(wav_bytes)
             samples, sample_rate = sf.read(wav_io, dtype="float32")
 
             # Choose model

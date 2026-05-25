@@ -1,11 +1,34 @@
-__pycache__/
+```
+# Compiled Python files
 *.pyc
-*.pyo
-data/manu.db
-data/captures/*.jpg
-data/logs/*.log
-.env
+__pycache__/
+
+# Virtual environments
+venv/
 .venv/
-*.egg-info/
-dist/
+.env
+.env.local
+*.env.*
+
+# Logs
+*.log
+
+# Editor/IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# Build/dist directories
 build/
+dist/
+target/
+
+# Dependencies cache
+.mypy_cache/
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+```
