@@ -21,7 +21,7 @@ log = logging.getLogger("Manu.Beep")
 ASSETS_DIR = Path("assets")
 
 # Beep file paths
-BEEP_ON_PATH  = ASSETS_DIR / "beep_on.wav"
+BEEP_ON_PATH = ASSETS_DIR / "beep_on.wav"
 BEEP_OFF_PATH = ASSETS_DIR / "beep_off.wav"
 
 
@@ -84,15 +84,15 @@ class BeepEngine:
             volume:      Peak amplitude 0.0–1.0
         """
         sample_rate = 44100
-        n_samples   = int(sample_rate * duration_ms / 1000)
-        amplitude   = int(32767 * volume)
-        fade_len    = min(200, n_samples // 4)   # Fade in/out length in samples
+        n_samples = int(sample_rate * duration_ms / 1000)
+        amplitude = int(32767 * volume)
+        fade_len = min(200, n_samples // 4)  # Fade in/out length in samples
 
         frames = []
         for i in range(n_samples):
             # Sine wave
-            t       = i / sample_rate
-            sample  = math.sin(2 * math.pi * freq * t)
+            t = i / sample_rate
+            sample = math.sin(2 * math.pi * freq * t)
 
             # Fade-in envelope
             if i < fade_len:

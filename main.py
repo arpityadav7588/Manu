@@ -4,23 +4,13 @@ Siri-style: invisible, always-on, fully offline.
 """
 
 import argparse
-import sys
 import logging
+import sys
 import threading
 import time
 from pathlib import Path
+
 from engines.vision_engine import VisionEngine
-
-# ── Phase 2 Imports ───────────────────────────────────────────────────────────
-import logging
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)-18s] %(levelname)s  %(message)s",
-    datefmt="%H:%M:%S",
-)
-
-# ── Core Engine Imports ───────────────────────────────────────────────────────
 from engines.brain_engine import BrainEngine
 from engines.speech_engine import SpeechEngine
 from engines.audio_engine import AudioEngine
@@ -30,6 +20,12 @@ from modules.security_manager import SecurityManager
 from modules.emotion_manager import EmotionManager
 from ui.app_gui import ManuGUI
 from modules.system_monitor import SystemMonitor
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)-18s] %(levelname)s  %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 log = logging.getLogger("Manu")
 
@@ -42,28 +38,28 @@ class ManuAssistant:
 
     def __init__(self):
         log.info("Initializing Manu Assistant...")
-        
+
         # ── Engines ───────────────────────────────────────────────────────────
-        self.brain    = BrainEngine()
-        self.speech   = SpeechEngine()
-        self.audio    = AudioEngine(model="base")
+        self.brain = BrainEngine()
+        self.speech = SpeechEngine()
+        self.audio = AudioEngine(model="base")
         self.commands = CommandEngine()
-        
+
         # ── Managers ──────────────────────────────────────────────────────────
-        self.memory   = MemoryManager()
+        self.memory = MemoryManager()
         self.security = SecurityManager()
         self.emotions = EmotionManager()
         self.vision = VisionEngine(self.speech, self.emotions, self.memory)
-        
+
         # ── UI & Monitoring ───────────────────────────────────────────────────
-        self.gui      = ManuGUI(
+        self.gui = ManuGUI(
             on_command_submit=self.handle_command,
             on_login_submit=self.handle_login
         )
-        self.monitor  = SystemMonitor(self.handle_system_event)
+        self.monitor = SystemMonitor(self.handle_system_event)
         self.monitor.start()
         self.vision.start()
-        
+
         self.is_listening = False
         log.info("Manu initialization complete.")
 
@@ -87,17 +83,17 @@ class ManuAssistant:
         """Main command processor."""
         if not text:
             return
-            
+
         log.info(f"Processing command: {text}")
         response = self.commands.execute(text, context={"brain": self.brain})
-        
+
         if response:
             self.speech.speak(response)
             return response
 
         if isinstance(response, str) and response.startswith("SCREEN_READ"):
             # Extract optional question from command code
-            parts    = response.split(":", 1)
+            parts = response.split(":", 1)
             question = parts[1] if len(parts) > 1 else "What is on this screen?"
             response = self.vision.read_screen(question)
 
@@ -107,7 +103,7 @@ class ManuAssistant:
                 frame = self.vision._capture_frame()
                 if frame is not None:
                     emotion, conf = self.vision._analyze_emotion(frame)
-                    mood_comment  = self.emotions.get_vision_response(emotion)
+                    mood_comment = self.emotions.get_vision_response(emotion)
                     response = (
                         f"I detect {emotion} emotion with "
                         f"{int(conf*100)}% confidence. "
@@ -119,8 +115,8 @@ class ManuAssistant:
                 response = f"Face check failed: {e}"
 
         elif response == "VISION_STATUS":
-            caps     = self.vision.capabilities
-            parts    = []
+            caps = self.vision.capabilities
+            parts = []
             if caps["emotion_detection"]:
                 parts.append("emotion detection via webcam is active")
             else:
@@ -152,7 +148,7 @@ class ManuAssistant:
         from engines.wake_word_engine import WakeWordEngine
         from engines.beep_engine import BeepEngine
 
-        beep   = BeepEngine()
+        beep = BeepEngine()
         engine = WakeWordEngine(on_detected=self._on_wake_detected)
         engine.start()
 
@@ -187,8 +183,6 @@ class ManuAssistant:
 
 
 if __name__ == "__main__":
-    import argparse, sys
-
     parser = argparse.ArgumentParser(description="Manu AI Assistant")
     parser.add_argument(
         "--siri",
@@ -212,14 +206,15 @@ if __name__ == "__main__":
     if args.siri:
         # ── SIRI MODE: invisible + always listening ──────────────────
         from engines.siri_mode import SiriMode
+
         siri = SiriMode(assistant)
         siri.start()
-        siri.run_forever()      # Blocks main thread forever
+        siri.run_forever()  # Blocks main thread forever
 
     elif args.console:
         # ── CONSOLE MODE: type commands in terminal ──────────────────
         from engines.wake_word_engine import WakeWordEngine
-        from engines.beep_engine      import BeepEngine
+        from engines.beep_engine import BeepEngine
 
         print("\n" + "=" * 50)
         print("  Manu — Console Mode")
